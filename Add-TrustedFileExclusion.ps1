@@ -17,18 +17,18 @@
         hash registry, optionally notifies Pager.
         On mismatch: removes exclusion immediately.
 
-    Accepts either a local file path (-FilePath) or a URL (-URL).
+    -FilePath is always required and sets both the download destination
+    and the file location for verification. If the file does not exist
+    and -URL is provided, the file is downloaded to that path first.
     GitHub blob URLs are converted to raw URLs automatically.
 
 .PARAMETER FilePath
-    Full path to a file already on disk.
+    Full path to the file. Used as the download destination if the file
+    does not exist and -URL is provided.
 
 .PARAMETER URL
-    Download URL for the file. GitHub blob URLs are accepted and converted
-    to raw URLs automatically.
-
-.PARAMETER Destination
-    Folder to save downloaded files. Defaults to F:\.
+    Optional download URL. Only used if the file does not exist at -FilePath.
+    GitHub blob URLs are accepted and converted to raw URLs automatically.
 
 .PARAMETER ExpectedHash
     SHA256 verified on VirusTotal by hash search. Omit on first run to
@@ -47,25 +47,22 @@
     # File already on disk - Step 2
     .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -ExpectedHash "AD9E4D..."
 
-    # Download from URL - Step 1 (GitHub blob or raw URL)
-    .\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
+    # Download then trust - Step 1
+    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
 
-    # Download from URL - Step 2
-    .\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..."
+    # Download then trust - Step 2
+    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..."
 
-    # Download from URL - Step 2 with Pager notification
-    .\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..." -PagerIP "100.x.x.x"
+    # Download then trust - Step 2 with Pager
+    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..." -PagerIP "100.x.x.x"
 #>
 
 param(
-    [Parameter(ParameterSetName="ByFile", Mandatory=$true)]
+    [Parameter(Mandatory=$true)]
     [string]$FilePath,
 
-    [Parameter(ParameterSetName="ByURL", Mandatory=$true)]
-    [string]$URL,
-
-    [Parameter(ParameterSetName="ByURL")]
-    [string]$Destination = "F:\",
+    [Parameter(Mandatory=$false)]
+    [string]$URL = "",
 
     [Parameter(Mandatory=$false)]
     [string]$ExpectedHash = "",
@@ -76,9 +73,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$fileName = Split-Path $FilePath -Leaf
 
-# ── URL mode: normalize and download ─────────────────────────────────────────
-if ($PSCmdlet.ParameterSetName -eq "ByURL") {
+Write-Host ""
+
+# ── Download if URL provided ──────────────────────────────────────────────────
+if ($URL -ne "") {
 
     # Convert GitHub blob URL to raw URL
     if ($URL -match '^https://github\.com/(.+)/blob/(.+)$') {
@@ -88,26 +88,14 @@ if ($PSCmdlet.ParameterSetName -eq "ByURL") {
         Write-Host ""
     }
 
-    $fileName = Split-Path -Path ([System.Uri]$URL).LocalPath -Leaf
-    if (-not $fileName) {
-        Write-Error "Cannot determine filename from URL. Specify a direct download link."
-        exit 1
-    }
-
-    if (-not (Test-Path $Destination)) {
-        Write-Error "Destination path does not exist: $Destination"
-        exit 1
-    }
-
-    $FilePath = Join-Path (Resolve-Path $Destination) $fileName
-
-    # Clear read-only if the file already exists from a previous run
+    # Clear read-only if file already exists
     if (Test-Path $FilePath) {
         Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
-        Write-Host "[+] Existing file found - cleared read-only for overwrite." -ForegroundColor Cyan
+        Write-Host "[+] File exists - downloading to verify re-download integrity..." -ForegroundColor Cyan
+    } else {
+        Write-Host "[+] Downloading to $FilePath..." -ForegroundColor Cyan
     }
 
-    Write-Host "[+] Downloading $fileName..." -ForegroundColor Cyan
     try {
         Invoke-WebRequest -Uri $URL -OutFile $FilePath -UseBasicParsing -ErrorAction Stop
         Write-Host "[+] Download complete." -ForegroundColor Cyan
@@ -115,18 +103,14 @@ if ($PSCmdlet.ParameterSetName -eq "ByURL") {
         Write-Error "Download failed: $_"
         exit 1
     }
-}
 
-$fileName = Split-Path $FilePath -Leaf
-
-Write-Host ""
-Write-Host "File: $FilePath"
-Write-Host ""
-
-if (-not (Test-Path $FilePath)) {
-    Write-Error "File not found: $FilePath"
+} elseif (-not (Test-Path $FilePath)) {
+    Write-Error "File not found: $FilePath. Provide -URL to download it."
     exit 1
 }
+
+Write-Host "File: $FilePath"
+Write-Host ""
 
 # ── Add exclusion so Defender does not block the file read ────────────────────
 Add-MpPreference -ExclusionPath $FilePath
@@ -142,7 +126,7 @@ try {
     exit 1
 }
 
-# ── Step 1: no ExpectedHash - display hash and VirusTotal link ────────────────
+# ── Step 1: display hash and VirusTotal link ──────────────────────────────────
 if ($ExpectedHash -eq "") {
     Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
     Write-Host "SHA256: $actualHash" -ForegroundColor Cyan
@@ -154,16 +138,16 @@ if ($ExpectedHash -eq "") {
     Write-Host "matching the exact file you have, not a cached version." -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Once verified, re-run with -ExpectedHash to trust the file:" -ForegroundColor Gray
-    if ($URL) {
-        Write-Host "  .\Add-TrustedFileExclusion.ps1 -URL `"$URL`" -ExpectedHash `"$actualHash`"" -ForegroundColor Gray
+    if ($URL -ne "") {
+        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath \`"$FilePath\`" -ExpectedHash \`"$actualHash\`"" -ForegroundColor Gray
     } else {
-        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath `"$FilePath`" -ExpectedHash `"$actualHash`"" -ForegroundColor Gray
+        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath \`"$FilePath\`" -ExpectedHash \`"$actualHash\`"" -ForegroundColor Gray
     }
     Write-Host ""
     exit 0
 }
 
-# ── Step 2: ExpectedHash provided - compare and apply protection ──────────────
+# ── Step 2: compare hash and apply protection ─────────────────────────────────
 $expectedNorm = $ExpectedHash.ToUpper().Trim()
 Write-Host "Expected: $expectedNorm"
 Write-Host "Actual:   $actualHash"
@@ -173,10 +157,6 @@ if ($actualHash -ne $expectedNorm) {
     Write-Host "FAIL  Hash mismatch." -ForegroundColor Red
     Write-Host "      Removing exclusion - file is not trusted." -ForegroundColor Red
     Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
-    if ($PSCmdlet.ParameterSetName -eq "ByURL") {
-        Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
-        Write-Host "      Downloaded file deleted." -ForegroundColor Red
-    }
     exit 1
 }
 
