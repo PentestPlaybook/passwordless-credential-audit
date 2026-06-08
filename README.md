@@ -53,8 +53,9 @@ Verifies a file's SHA256 hash and applies the full protection stack.
 **Parameters:**
 | Parameter | Required | Description |
 |---|---|---|
-| `-FilePath` | Yes | Full path to the file (must exist on disk) |
-| `-ExpectedHash` | Yes | SHA256 from VirusTotal or official release page |
+| `-FilePath` | Yes | Full path to the file. Used as download destination if file does not exist and -URL is provided. Accepts a directory - filename derived from URL. |
+| `-URL` | No | Download URL. GitHub blob URLs converted automatically. If file exists, re-downloads and overwrites for integrity verification. |
+| `-ExpectedHash` | No | SHA256 safety check. Verifies the file has not changed since last known state. Does not replace the VirusTotal prompt. |
 | `-PagerIP` | No | Tailscale IP of the Pager - omit to skip notification |
 | `-PagerPort` | No | Pager netcat listener port (default: 9999) |
 
@@ -66,28 +67,22 @@ Verifies a file's SHA256 hash and applies the full protection stack.
 5. **Match:** sets read-only, applies SACL, writes to hash registry, notifies Pager
 6. **Mismatch:** removes exclusion immediately - nothing trusted, nothing left behind
 
-**Usage — file already on disk:**
+**Usage:**
 ```powershell
-# Step 1 - compute hash and get VirusTotal link
+# File already on disk
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe"
 
-# Step 2 - trust after VirusTotal review
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -ExpectedHash "AD9E4D..."
+# Download from URL to specific path (GitHub blob or raw URLs accepted)
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
 
-# Step 2 with Pager notification
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -ExpectedHash "AD9E4D..." -PagerIP "100.x.x.x"
-```
+# Download to directory - filename derived from URL
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
 
-**Usage — download from URL (GitHub blob or raw URLs accepted):**
-```powershell
-# Step 1 - download and get hash for VirusTotal review
-.\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
+# With Pager notification
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://..." -PagerIP "100.x.x.x"
 
-# Step 2 - download and trust after VirusTotal review
-.\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..."
-
-# Step 2 with Pager notification
-.\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..." -PagerIP "100.x.x.x"
+# Re-download and verify hash has not changed since last known state
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://..." -ExpectedHash "AD9E4D..."
 ```
 
 **Getting the expected hash:**
