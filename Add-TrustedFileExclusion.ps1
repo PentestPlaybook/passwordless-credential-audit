@@ -44,6 +44,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$FilePath,
 
+    [Parameter(Mandatory=$false)]
     [string]$ExpectedHash = "",
     [string]$PagerIP      = "",
     [int]$PagerPort       = 9999,
