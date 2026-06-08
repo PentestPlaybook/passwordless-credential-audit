@@ -88,6 +88,13 @@ if ($URL -ne "") {
         Write-Host ""
     }
 
+    # If FilePath is a directory, derive filename from the URL
+    if (Test-Path $FilePath -PathType Container) {
+        $urlFileName = Split-Path -Path ([System.Uri]$URL).LocalPath -Leaf
+        $FilePath    = Join-Path (Resolve-Path $FilePath) $urlFileName
+        Write-Host "[+] Directory provided - saving as: $FilePath" -ForegroundColor Cyan
+    }
+
     # Clear read-only if file already exists
     if (Test-Path $FilePath) {
         Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
