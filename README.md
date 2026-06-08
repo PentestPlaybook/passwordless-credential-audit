@@ -74,14 +74,14 @@ Verifies a file's SHA256 hash and applies the full protection stack.
 
 # Download from URL to specific path (GitHub blob or raw URLs accepted)
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe" -URL "https://github.com/ParrotSec/mimikatz/blob/master/x64/mimikatz.exe"
 
 # With Pager notification
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -PagerIP "100.x.x.x"
 
 # Re-download and verify hash has not changed since last known state
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe" -URL "https://github.com/ParrotSec/mimikatz/blob/master/x64/mimikatz.exe" -ExpectedHash "92804FAAAB2175DC501D73E814663058C78C0A042675A8937266357BCFB96C50"
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4DDCE68A34F0BA3010E66286BC3AA056043C7DCA7A22C3222A279614025A"
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe" -URL "https://github.com/ParrotSec/mimikatz/blob/master/x64/mimikatz.exe" -ExpectedHash "92804FAAAB2175DC501D73E814663058C78C0A042675A8937266357BCFB96C50"
 
 ```
 
