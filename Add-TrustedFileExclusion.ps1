@@ -146,9 +146,9 @@ if ($ExpectedHash -eq "") {
     Write-Host ""
     Write-Host "Once verified, re-run with -ExpectedHash to trust the file:" -ForegroundColor Gray
     if ($URL -ne "") {
-        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath \`"$FilePath\`" -ExpectedHash \`"$actualHash\`"" -ForegroundColor Gray
+        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath '$FilePath' -ExpectedHash '$actualHash'" -ForegroundColor Gray
     } else {
-        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath \`"$FilePath\`" -ExpectedHash \`"$actualHash\`"" -ForegroundColor Gray
+        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath '$FilePath' -ExpectedHash '$actualHash'" -ForegroundColor Gray
     }
     Write-Host ""
     exit 0
