@@ -1,38 +1,39 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Adds a file-specific Defender exclusion then verifies the hash.
+    Downloads or locates a file, verifies its hash, prompts for confirmation,
+    then applies a file-specific Defender exclusion and integrity monitoring.
 
 .DESCRIPTION
-    Two-step workflow:
+    Workflow:
+      1. If -URL is provided and the file does not exist, downloads it first.
+         The Defender exclusion is added before the download so the file is
+         not quarantined as it is written to disk.
+      2. Computes the SHA256 hash of the file.
+      3. If -ExpectedHash is provided, verifies the hash matches.
+         Use this to confirm a file has not changed since it was last trusted.
+      4. Displays the hash with a direct VirusTotal search link.
+      5. Prompts: "Have you verified this hash on VirusTotal? (Y/N)"
+      6. On Y: applies full protection - keeps exclusion, sets read-only,
+         applies SACL (Event 4663 on write/delete), writes to hash registry,
+         optionally notifies Pager.
+      7. On N: removes exclusion and exits.
 
-    Step 1 - Get the hash (run without -ExpectedHash):
-        Adds a temporary exclusion, computes the SHA256, removes the exclusion,
-        and outputs the hash with a direct VirusTotal search link.
-        Search by hash on VirusTotal - not URL, URL results are cached and stale.
-
-    Step 2 - Trust the file (run with -ExpectedHash):
-        Recomputes the hash and compares against the expected value.
-        On match: keeps exclusion, sets read-only, applies SACL, writes to
-        hash registry, optionally notifies Pager.
-        On mismatch: removes exclusion immediately.
-
-    -FilePath is always required and sets both the download destination
-    and the file location for verification. If the file does not exist
-    and -URL is provided, the file is downloaded to that path first.
     GitHub blob URLs are converted to raw URLs automatically.
 
 .PARAMETER FilePath
-    Full path to the file. Used as the download destination if the file
-    does not exist and -URL is provided.
+    Full path to the file. Used as the download destination if -URL is
+    provided and the file does not exist.
 
 .PARAMETER URL
-    Optional download URL. Only used if the file does not exist at -FilePath.
-    GitHub blob URLs are accepted and converted to raw URLs automatically.
+    Optional download URL. GitHub blob URLs are accepted and converted
+    to raw URLs automatically. If the file already exists, re-downloads
+    and overwrites for integrity verification.
 
 .PARAMETER ExpectedHash
-    SHA256 verified on VirusTotal by hash search. Omit on first run to
-    compute and display the hash.
+    Optional. SHA256 to verify against. Use when re-trusting a file to
+    confirm it has not changed since the last known good state.
+    Does not replace the VirusTotal prompt.
 
 .PARAMETER PagerIP
     Tailscale IP of the Pager. Optional - omit to skip notification.
@@ -41,20 +42,17 @@
     TCP port of the Pager netcat listener. Defaults to 9999.
 
 .EXAMPLE
-    # File already on disk - Step 1
-    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe"
-
-    # File already on disk - Step 2
-    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -ExpectedHash "AD9E4D..."
-
-    # Download then trust - Step 1
+    # Download and trust
     .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
 
-    # Download then trust - Step 2
-    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..."
+    # Trust a file already on disk
+    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe"
 
-    # Download then trust - Step 2 with Pager
-    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..." -PagerIP "100.x.x.x"
+    # Re-download and confirm hash has not changed
+    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://..." -ExpectedHash "AD9E4D..."
+
+    # With Pager notification
+    .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://..." -PagerIP "100.x.x.x"
 #>
 
 param(
@@ -77,6 +75,14 @@ $fileName = Split-Path $FilePath -Leaf
 
 Write-Host ""
 
+# ── If FilePath is a directory and URL provided, derive filename from URL ─────
+if ($URL -ne "" -and (Test-Path $FilePath -PathType Container)) {
+    $urlFileName = Split-Path -Path ([System.Uri]$URL).LocalPath -Leaf
+    $FilePath    = Join-Path (Resolve-Path $FilePath) $urlFileName
+    $fileName    = $urlFileName
+    Write-Host "[+] Directory provided - saving as: $FilePath" -ForegroundColor Cyan
+}
+
 # ── Download if URL provided ──────────────────────────────────────────────────
 if ($URL -ne "") {
 
@@ -88,13 +94,6 @@ if ($URL -ne "") {
         Write-Host ""
     }
 
-    # If FilePath is a directory, derive filename from the URL
-    if (Test-Path $FilePath -PathType Container) {
-        $urlFileName = Split-Path -Path ([System.Uri]$URL).LocalPath -Leaf
-        $FilePath    = Join-Path (Resolve-Path $FilePath) $urlFileName
-        Write-Host "[+] Directory provided - saving as: $FilePath" -ForegroundColor Cyan
-    }
-
     # Add exclusion BEFORE downloading so Defender does not quarantine
     # the file as it is written to disk
     Add-MpPreference -ExclusionPath $FilePath
@@ -104,7 +103,7 @@ if ($URL -ne "") {
     # Clear read-only if file already exists
     if (Test-Path $FilePath) {
         Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
-        Write-Host "[+] File exists - downloading to verify re-download integrity..." -ForegroundColor Cyan
+        Write-Host "[+] Overwriting existing file..." -ForegroundColor Cyan
     } else {
         Write-Host "[+] Downloading to $FilePath..." -ForegroundColor Cyan
     }
@@ -126,7 +125,7 @@ if ($URL -ne "") {
 Write-Host "File: $FilePath"
 Write-Host ""
 
-# ── Add exclusion (FilePath mode only — URL mode already added it above) ──────
+# ── Add exclusion for FilePath mode (URL mode already added it above) ─────────
 if ($URL -eq "") {
     Add-MpPreference -ExclusionPath $FilePath
     Start-Sleep -Seconds 3
@@ -142,48 +141,47 @@ try {
     exit 1
 }
 
-# ── Step 1: display hash and VirusTotal link ──────────────────────────────────
-if ($ExpectedHash -eq "") {
-    Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
-    Write-Host "SHA256: $actualHash" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Search this hash on VirusTotal:" -ForegroundColor Yellow
-    Write-Host "  https://www.virustotal.com/gui/search/$actualHash" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Do not use URL analysis - search by hash for results" -ForegroundColor Yellow
-    Write-Host "matching the exact file you have, not a cached version." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Once verified, re-run with -ExpectedHash to trust the file:" -ForegroundColor Gray
-    if ($URL -ne "") {
-        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath '$FilePath' -ExpectedHash '$actualHash'" -ForegroundColor Gray
+# ── Optional: verify against expected hash ────────────────────────────────────
+if ($ExpectedHash -ne "") {
+    $expectedNorm = $ExpectedHash.ToUpper().Trim()
+    if ($actualHash -eq $expectedNorm) {
+        Write-Host "[+] Hash matches expected value." -ForegroundColor Green
     } else {
-        Write-Host "  .\Add-TrustedFileExclusion.ps1 -FilePath '$FilePath' -ExpectedHash '$actualHash'" -ForegroundColor Gray
+        Write-Host "FAIL  Hash does not match expected value." -ForegroundColor Red
+        Write-Host "      Expected: $expectedNorm" -ForegroundColor Red
+        Write-Host "      Actual:   $actualHash" -ForegroundColor Red
+        Write-Host "      Removing exclusion - file is not trusted." -ForegroundColor Red
+        Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
+        exit 1
     }
+}
+
+# ── Display hash and VirusTotal link ──────────────────────────────────────────
+Write-Host "SHA256: $actualHash" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Search this hash on VirusTotal:" -ForegroundColor Yellow
+Write-Host "  https://www.virustotal.com/gui/search/$actualHash" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Do not use URL analysis - search by hash for the exact file you have." -ForegroundColor Yellow
+Write-Host ""
+
+# ── Prompt for confirmation ───────────────────────────────────────────────────
+$confirm = Read-Host "Have you verified this hash on VirusTotal? (Y/N)"
+if ($confirm -notmatch '^[Yy]$') {
     Write-Host ""
+    Write-Host "[-] Cancelled. Removing exclusion." -ForegroundColor Yellow
+    Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
     exit 0
 }
 
-# ── Step 2: compare hash and apply protection ─────────────────────────────────
-$expectedNorm = $ExpectedHash.ToUpper().Trim()
-Write-Host "Expected: $expectedNorm"
-Write-Host "Actual:   $actualHash"
 Write-Host ""
+Write-Host "[+] Confirmed. Applying protection..." -ForegroundColor Green
 
-if ($actualHash -ne $expectedNorm) {
-    Write-Host "FAIL  Hash mismatch." -ForegroundColor Red
-    Write-Host "      Removing exclusion - file is not trusted." -ForegroundColor Red
-    Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
-    exit 1
-}
-
-Write-Host "PASS  Hash verified." -ForegroundColor Green
-Write-Host "[+] Exclusion confirmed." -ForegroundColor Green
-
-# Set read-only (TOCTOU mitigation)
+# ── Set read-only (TOCTOU mitigation) ─────────────────────────────────────────
 Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $true
 Write-Host "[+] File set to read-only." -ForegroundColor Cyan
 
-# Apply SACL - requires SeSecurityPrivilege enabled explicitly
+# ── Apply SACL - requires SeSecurityPrivilege enabled explicitly ──────────────
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -239,7 +237,7 @@ try {
     Write-Warning "SACL could not be applied: $_"
 }
 
-# Write to hash registry
+# ── Write to hash registry ─────────────────────────────────────────────────────
 try {
     $dir = Split-Path $RegistryPath
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
@@ -247,7 +245,7 @@ try {
         Get-Content $RegistryPath -Raw | ConvertFrom-Json
     } else { [PSCustomObject]@{} }
     $reg | Add-Member -NotePropertyName $FilePath -NotePropertyValue ([PSCustomObject]@{
-        expectedHash = $expectedNorm
+        expectedHash = $actualHash
         fileName     = $fileName
         registeredAt = (Get-Date -Format "o")
     }) -Force
@@ -257,7 +255,7 @@ try {
     Write-Warning "Hash registry write failed: $_"
 }
 
-# Notify Pager if IP provided
+# ── Notify Pager if IP provided ───────────────────────────────────────────────
 if ($PagerIP -ne "") {
     try {
         $msg    = "EXCLUSION_ADDED: " + $fileName + " Hash verified"
