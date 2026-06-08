@@ -66,12 +66,28 @@ Verifies a file's SHA256 hash and applies the full protection stack.
 5. **Match:** sets read-only, applies SACL, writes to hash registry, notifies Pager
 6. **Mismatch:** removes exclusion immediately - nothing trusted, nothing left behind
 
-**Usage:**
+**Usage — file already on disk:**
 ```powershell
-.\Add-TrustedFileExclusion.ps1 `
-    -FilePath     "F:\nanodump.x64.exe" `
-    -ExpectedHash "AD9E4DDCE68A34F0BA3010E66286BC3AA056043C7DCA7A22C3222A279614025A" `
-    -PagerIP      "100.x.x.x"
+# Step 1 - compute hash and get VirusTotal link
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe"
+
+# Step 2 - trust after VirusTotal review
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -ExpectedHash "AD9E4D..."
+
+# Step 2 with Pager notification
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -ExpectedHash "AD9E4D..." -PagerIP "100.x.x.x"
+```
+
+**Usage — download from URL (GitHub blob or raw URLs accepted):**
+```powershell
+# Step 1 - download and get hash for VirusTotal review
+.\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
+
+# Step 2 - download and trust after VirusTotal review
+.\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..."
+
+# Step 2 with Pager notification
+.\Add-TrustedFileExclusion.ps1 -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4D..." -PagerIP "100.x.x.x"
 ```
 
 **Getting the expected hash:**
@@ -266,3 +282,6 @@ C:\ProgramData\SecurityBaseline\
 /root/payloads/alerts/exclusion/
     payload.ds                   DuckyScript for exclusion-added alerts
 ```
+
+> Note: `Invoke-SecureDownload.ps1` is superseded. URL download is now
+> handled directly by `Add-TrustedFileExclusion.ps1` via the `-URL` parameter.
