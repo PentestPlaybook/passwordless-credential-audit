@@ -77,7 +77,7 @@ Verifies a file's SHA256 hash and applies the full protection stack.
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe" -URL "https://github.com/ParrotSec/mimikatz/blob/master/x64/mimikatz.exe"
 
 # With Pager notification
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -PagerIP "100.x.x.x"
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe" -URL "https://github.com/ParrotSec/mimikatz/blob/master/x64/mimikatz.exe" -PagerIP "100.x.x.x"
 
 # Re-download and verify hash has not changed since last known state
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe" -ExpectedHash "AD9E4DDCE68A34F0BA3010E66286BC3AA056043C7DCA7A22C3222A279614025A"
