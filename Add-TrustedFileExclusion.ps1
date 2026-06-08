@@ -95,6 +95,12 @@ if ($URL -ne "") {
         Write-Host "[+] Directory provided - saving as: $FilePath" -ForegroundColor Cyan
     }
 
+    # Add exclusion BEFORE downloading so Defender does not quarantine
+    # the file as it is written to disk
+    Add-MpPreference -ExclusionPath $FilePath
+    Start-Sleep -Seconds 3
+    Write-Host "[+] Exclusion added for: $FilePath" -ForegroundColor Cyan
+
     # Clear read-only if file already exists
     if (Test-Path $FilePath) {
         Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
@@ -107,6 +113,7 @@ if ($URL -ne "") {
         Invoke-WebRequest -Uri $URL -OutFile $FilePath -UseBasicParsing -ErrorAction Stop
         Write-Host "[+] Download complete." -ForegroundColor Cyan
     } catch {
+        Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
         Write-Error "Download failed: $_"
         exit 1
     }
@@ -119,9 +126,11 @@ if ($URL -ne "") {
 Write-Host "File: $FilePath"
 Write-Host ""
 
-# ── Add exclusion so Defender does not block the file read ────────────────────
-Add-MpPreference -ExclusionPath $FilePath
-Start-Sleep -Seconds 3
+# ── Add exclusion (FilePath mode only — URL mode already added it above) ──────
+if ($URL -eq "") {
+    Add-MpPreference -ExclusionPath $FilePath
+    Start-Sleep -Seconds 3
+}
 
 # ── Compute hash ──────────────────────────────────────────────────────────────
 $actualHash = $null
