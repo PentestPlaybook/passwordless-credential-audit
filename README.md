@@ -75,11 +75,33 @@ Verifies a file's SHA256 hash and applies the full protection stack.
 ```
 
 **Getting the expected hash:**
-Paste the raw GitHub URL or filename into [virustotal.com](https://virustotal.com)
-before downloading. The SHA256 is shown at the top of the file details tab.
-Raw GitHub URL format:
+
+VirusTotal URL analysis caches results and may reflect a file from months or
+years ago. If the repo has been updated since the last analysis, the cached
+hash will not match the file you downloaded.
+
+The correct workflow is:
+
+1. Download the file
+2. Compute its hash (briefly disable real-time monitoring for known-signature tools)
+```powershell
+Set-MpPreference -DisableRealtimeMonitoring $true
+(Get-FileHash "F:\nanodump.x64.exe").Hash
+Set-MpPreference -DisableRealtimeMonitoring $false
 ```
-https://raw.githubusercontent.com/{user}/{repo}/{branch}/{path}
+3. Paste that hash into [virustotal.com](https://virustotal.com) search
+4. Review the detection report for the exact file you have
+5. Run `Add-TrustedFileExclusion.ps1` with that hash as `-ExpectedHash`
+
+If you use VirusTotal's URL analysis instead of a hash search, click
+**Reanalyze** first to force a fresh fetch — otherwise the cached hash
+may not match the current file at that URL.
+
+Raw GitHub URL format (blob URL → raw URL):
+```
+github.com/{user}/{repo}/blob/{branch}/{path}
+                 ↓
+raw.githubusercontent.com/{user}/{repo}/{branch}/{path}
 ```
 
 **Note on directory exclusions:**
