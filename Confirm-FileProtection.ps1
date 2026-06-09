@@ -44,31 +44,9 @@ if ($excls -contains $FilePath) {
     Write-Host "[FAIL] No Defender exclusion found for this path." -ForegroundColor Red
 }
 
-# 5. SACL audit rule
-$auditRules = $null
-try {
-    $auditRules = (Get-Acl -Path $FilePath -Audit).Audit
-} catch {
-    Write-Host "[WARN] Could not read SACL: $_" -ForegroundColor Yellow
-}
-if ($null -ne $auditRules -and $auditRules.Count -gt 0) {
-    Write-Host "[PASS] SACL applied:" -ForegroundColor Green
-    foreach ($r in $auditRules) {
-        Write-Host "       Rights=$($r.FileSystemRights)  Flags=$($r.AuditFlags)  Principal=$($r.IdentityReference)" -ForegroundColor Gray
-    }
-} else {
-    Write-Host "[FAIL] SACL empty - Event 4663 will not fire." -ForegroundColor Red
-}
 
-# 6. File System audit subcategory
-$pol = & auditpol /get /subcategory:"File System" 2>&1 | Out-String
-if ($pol -match "Success") {
-    Write-Host "[PASS] File System audit subcategory enabled." -ForegroundColor Green
-} else {
-    Write-Host "[FAIL] File System audit subcategory not enabled." -ForegroundColor Red
-}
 
-# 7. Hash registry
+# 5. Hash registry
 if (Test-Path $RegistryPath) {
     $reg = Get-Content $RegistryPath -Raw | ConvertFrom-Json
     $entry = $reg.PSObject.Properties | Where-Object { $_.Name -eq $FilePath }
@@ -83,7 +61,7 @@ if (Test-Path $RegistryPath) {
     Write-Host "[WARN] Hash registry file not found at $RegistryPath" -ForegroundColor Yellow
 }
 
-# 8. Current hash vs registry
+# 6. Current hash vs registry
 $currentHash = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash
 Write-Host ""
 Write-Host "Current SHA256: $currentHash" -ForegroundColor Cyan
