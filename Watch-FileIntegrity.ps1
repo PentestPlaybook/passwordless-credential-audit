@@ -148,7 +148,7 @@ while ($true) {
     $registry = Get-Registry
 
     if ($null -eq $registry) {
-        Write-Host "[(Get-Date -Format 'HH:mm:ss')] Registry not found - waiting..." -ForegroundColor Yellow
+        Write-Host "[$((Get-Date -Format 'HH:mm:ss'))] Registry not found - waiting..." -ForegroundColor Yellow
     } else {
         $entries = $registry.PSObject.Properties
         foreach ($entry in $entries) {
