@@ -1,48 +1,39 @@
+#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Monitors registered research tool files for integrity violations and fires
-    Pager and ntfy push alerts when a write or delete attempt is detected.
+    Monitors registered files for hash changes and fires Pager and ntfy
+    alerts when a file's SHA256 no longer matches its registered value.
 
 .DESCRIPTION
-    Watches the Windows Security event log for Event 4663 (file object access)
-    against paths registered by Invoke-SecureDownload.ps1. On each event:
+    Polls the hash registry written by Add-TrustedFileExclusion.ps1 on a
+    configurable interval. For each registered file, computes the current
+    SHA256 and compares against the stored expected value. Alerts fire only
+    on actual hash changes or file deletion - not on every write attempt.
 
-      1. Identifies which registered file triggered the alert
-      2. Checks whether the file still exists
-      3. Computes the current SHA256 hash if the file is present
-      4. Compares against the expected hash stored in the registry
-      5. Fires a Pager TCP alert (via netcat listener on the Pager) and an
-         ntfy push notification with full details:
-           - File path and name
-           - Process that attempted the access
-           - Whether the hash changed (INTEGRITY VIOLATION) or not (attempt blocked)
-           - Remediation status
-
-    The Pager alert uses a simple TCP connection (Layer 4) to the Pager's
-    netcat listener on port 9999. The listener pipes received messages to
-    syslog via logger, and a syslog watcher on the Pager triggers the
-    DuckyScript ALERT. No SSH key infrastructure required.
-
-    Runs as a persistent background watcher. Register as a scheduled task at
-    startup to ensure continuous coverage.
+    This approach is independent of SACLs and Event 4663. File replacement
+    removes any SACL on the original object, making event-driven detection
+    unreliable. Hash polling detects the change regardless of how the file
+    was modified or replaced.
 
 .PARAMETER PagerIP
-    IP address of the WiFi Pineapple Pager on the Tailscale network.
+    Tailscale IP of the WiFi Pineapple Pager.
 
 .PARAMETER PagerPort
-    TCP port of the netcat listener on the Pager. Defaults to 9999.
+    TCP port of the Pager netcat listener. Defaults to 9999.
 
 .PARAMETER NtfyURL
-    URL of the self-hosted ntfy instance (e.g. http://100.x.x.x:80/security-alerts).
+    URL of the self-hosted ntfy instance.
 
 .PARAMETER RegistryPath
-    Path to the trusted_hashes.json file written by Invoke-SecureDownload.ps1.
-    Defaults to $env:ProgramData\SecurityBaseline\trusted_hashes.json.
+    Path to trusted_hashes.json. Defaults to ProgramData\SecurityBaseline.
+
+.PARAMETER IntervalSeconds
+    How often to check each file. Defaults to 60 seconds.
 
 .EXAMPLE
     .\Watch-FileIntegrity.ps1 `
-        -PagerIP   "100.x.x.x" `
-        -NtfyURL   "http://100.x.x.x:80/security-alerts"
+        -PagerIP "100.x.x.x" `
+        -NtfyURL "http://100.x.x.x:80/security-alerts"
 #>
 
 #Requires -RunAsAdministrator
@@ -56,38 +47,23 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$NtfyURL,
 
-    [string]$RegistryPath = "$env:ProgramData\SecurityBaseline\trusted_hashes.json"
-)
+    [string]$RegistryPath = "$env:ProgramData\SecurityBaseline\trusted_hashes.json",
 
-# ── Load hash registry ────────────────────────────────────────────────────────
-function Get-HashRegistry {
-    if (-not (Test-Path $RegistryPath)) {
-        Write-Warning "Hash registry not found at $RegistryPath"
-        Write-Warning "Run Invoke-SecureDownload.ps1 first to register files."
-        return $null
-    }
-    return Get-Content $RegistryPath -Raw | ConvertFrom-Json
-}
+    [int]$IntervalSeconds = 60
+)
 
 # ── Alert functions ───────────────────────────────────────────────────────────
 function Send-PagerAlert {
-    param([string]$EventType, [string]$Message)
-    # Sends a plain TCP message to the Pager's netcat listener on port 9999.
-    # The Pager pipes the message to syslog via logger, and a syslog watcher
-    # triggers the DuckyScript ALERT. No SSH or key management required.
-    # Layer stack: .NET TcpClient (L7) → TCP (L4) → IP/Tailscale (L3) → L1/2
+    param([string]$Message)
     try {
-        $payload = "$EventType`: $Message"
-        $client  = New-Object System.Net.Sockets.TcpClient
+        $client = New-Object System.Net.Sockets.TcpClient
         $client.ConnectAsync($PagerIP, $PagerPort).Wait(3000) | Out-Null
         if ($client.Connected) {
             $stream = $client.GetStream()
-            $bytes  = [System.Text.Encoding]::UTF8.GetBytes("$payload`n")
+            $bytes  = [System.Text.Encoding]::UTF8.GetBytes("$Message`n")
             $stream.Write($bytes, 0, $bytes.Length)
             $stream.Flush()
             $client.Close()
-        } else {
-            Write-Warning "Pager TCP connection timed out ($PagerIP`:$PagerPort)"
         }
     } catch {
         Write-Warning "Pager alert failed: $_"
@@ -95,19 +71,11 @@ function Send-PagerAlert {
 }
 
 function Send-NtfyAlert {
-    param(
-        [string]$Title,
-        [string]$Body,
-        [string]$Priority = "high"
-    )
+    param([string]$Title, [string]$Body, [string]$Priority = "high")
     try {
         Invoke-RestMethod -Uri $NtfyURL `
             -Method POST `
-            -Headers @{
-                "Title"    = $Title
-                "Priority" = $Priority
-                "Tags"     = "warning,file-integrity"
-            } `
+            -Headers @{ "Title" = $Title; "Priority" = $Priority; "Tags" = "warning,file-integrity" } `
             -Body $Body `
             -ContentType "text/plain" | Out-Null
     } catch {
@@ -115,126 +83,81 @@ function Send-NtfyAlert {
     }
 }
 
-# ── Handle an Event 4663 hit ──────────────────────────────────────────────────
-function Invoke-IntegrityAlert {
-    param([System.Diagnostics.Eventing.Reader.EventLogRecord]$Event)
+# ── Load hash registry ────────────────────────────────────────────────────────
+function Get-Registry {
+    if (-not (Test-Path $RegistryPath)) { return $null }
+    try { return Get-Content $RegistryPath -Raw | ConvertFrom-Json }
+    catch { return $null }
+}
 
-    # Parse event XML for fields
-    $xml        = [xml]$Event.ToXml()
-    $data       = $xml.Event.EventData.Data
-    $objectName = ($data | Where-Object { $_.Name -eq "ObjectName" }).'#text'
-    $processNm  = ($data | Where-Object { $_.Name -eq "ProcessName" }).'#text'
-    $subject    = ($data | Where-Object { $_.Name -eq "SubjectUserName" }).'#text'
-    $accessList = ($data | Where-Object { $_.Name -eq "AccessList" }).'#text'
-    $timestamp  = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+# ── Check a single file ───────────────────────────────────────────────────────
+function Test-FileIntegrity {
+    param([string]$FilePath, [string]$ExpectedHash, [string]$FileName)
 
-    # Reload registry in case new files were registered since watcher started
-    $registry = Get-HashRegistry
-    if (-not $registry) { return }
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-    # Check if this path is one we're monitoring
-    $entry = $registry.PSObject.Properties | Where-Object { $_.Name -eq $objectName }
-    if (-not $entry) { return }
+    if (-not (Test-Path $FilePath)) {
+        $status = "FILE DELETED"
+        $body   = @"
+FILE DELETED
+File:     $FileName
+Path:     $FilePath
+Expected: $ExpectedHash
+Time:     $timestamp
+"@
+        Write-Host "[$timestamp] FILE DELETED - $FileName" -ForegroundColor Red
+        Send-PagerAlert -Message "FILE_DELETED: $FileName"
+        Send-NtfyAlert  -Title "File Deleted: $FileName" -Body $body -Priority "urgent"
+        return
+    }
 
-    $expectedHash = $entry.Value.expectedHash
-    $fileName     = $entry.Value.fileName
+    try {
+        $actual = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash
+    } catch {
+        Write-Warning "Could not hash $FilePath`: $_"
+        return
+    }
 
-    # Determine integrity status
-    if (-not (Test-Path $objectName)) {
-        $status      = "FILE DELETED"
-        $actualHash  = "N/A (file removed)"
-        $statusEmoji = "❌"
-        $priority    = "urgent"
-        $soarStatus  = "NOT REMEDIATED"
+    if ($actual -ne $ExpectedHash.ToUpper()) {
+        $body = @"
+INTEGRITY VIOLATION
+File:     $FileName
+Path:     $FilePath
+Expected: $ExpectedHash
+Actual:   $actual
+Time:     $timestamp
+"@
+        Write-Host "[$timestamp] INTEGRITY VIOLATION - $FileName" -ForegroundColor Red
+        Write-Host "             Expected: $ExpectedHash" -ForegroundColor Red
+        Write-Host "             Actual:   $actual" -ForegroundColor Red
+        Send-PagerAlert -Message "INTEGRITY_VIOLATION: $FileName hash changed"
+        Send-NtfyAlert  -Title "Integrity Violation: $FileName" -Body $body -Priority "urgent"
+    }
+}
+
+# ── Main polling loop ─────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "[+] File Integrity Watcher starting..." -ForegroundColor Cyan
+Write-Host "    Registry:  $RegistryPath" -ForegroundColor Cyan
+Write-Host "    Pager:     $PagerIP`:$PagerPort" -ForegroundColor Cyan
+Write-Host "    ntfy:      $NtfyURL" -ForegroundColor Cyan
+Write-Host "    Interval:  $IntervalSeconds seconds" -ForegroundColor Cyan
+Write-Host ""
+
+while ($true) {
+    $registry = Get-Registry
+
+    if ($null -eq $registry) {
+        Write-Host "[(Get-Date -Format 'HH:mm:ss')] Registry not found - waiting..." -ForegroundColor Yellow
     } else {
-        $actualHash = (Get-FileHash -Path $objectName -Algorithm SHA256).Hash
-        if ($actualHash -eq $expectedHash) {
-            $status      = "WRITE ATTEMPT - HASH UNCHANGED"
-            $statusEmoji = "✅"
-            $priority    = "high"
-            $soarStatus  = "REMEDIATED (read-only blocked modification)"
-        } else {
-            $status      = "INTEGRITY VIOLATION - HASH CHANGED"
-            $statusEmoji = "❌"
-            $priority    = "urgent"
-            $soarStatus  = "NOT REMEDIATED"
+        $entries = $registry.PSObject.Properties
+        foreach ($entry in $entries) {
+            Test-FileIntegrity `
+                -FilePath     $entry.Name `
+                -ExpectedHash $entry.Value.expectedHash `
+                -FileName     $entry.Value.fileName
         }
     }
 
-    # ── Build notification body ───────────────────────────────────────────────
-    $ntfyBody = @"
-$statusEmoji FILE INTEGRITY ALERT
-File:     $fileName
-Path:     $objectName
-Status:   $status
-Process:  $processNm
-User:     $subject
-Expected: $expectedHash
-Actual:   $actualHash
-SOAR:     $soarStatus
-Time:     $timestamp
-"@
-
-    $pagerMsg = "$status | $fileName | $processNm"
-
-    # ── Fire alerts ───────────────────────────────────────────────────────────
-    Write-Host "[$timestamp] $status — $fileName" -ForegroundColor $(
-        if ($soarStatus -eq "NOT REMEDIATED") { "Red" } else { "Yellow" }
-    )
-
-    Send-PagerAlert -EventType "FILE_INTEGRITY" -Message $pagerMsg
-    Send-NtfyAlert  -Title "$statusEmoji File Integrity Alert" -Body $ntfyBody -Priority $priority
-}
-
-# ── Set up EventLogWatcher on Security log ────────────────────────────────────
-# XPath query: Event 4663, ObjectType = File only
-$query = @"
-<QueryList>
-  <Query Id="0" Path="Security">
-    <Select Path="Security">
-      *[System[EventID=4663]
-        and EventData[Data[@Name='ObjectType']='File']]
-    </Select>
-  </Query>
-</QueryList>
-"@
-
-Write-Host ""
-Write-Host "[+] File Integrity Watcher starting..." -ForegroundColor Cyan
-Write-Host "    Registry: $RegistryPath" -ForegroundColor Cyan
-Write-Host "    Pager:    $PagerIP" -ForegroundColor Cyan
-Write-Host "    ntfy:     $NtfyURL" -ForegroundColor Cyan
-
-$registry = Get-HashRegistry
-if ($registry) {
-    $monitored = $registry.PSObject.Properties.Name
-    Write-Host "    Monitoring $($monitored.Count) file(s):" -ForegroundColor Cyan
-    $monitored | ForEach-Object { Write-Host "      - $_" -ForegroundColor Gray }
-}
-
-Write-Host ""
-Write-Host "[+] Watching for Event 4663... (Ctrl+C to stop)" -ForegroundColor Green
-Write-Host ""
-
-try {
-    $evtQuery   = New-Object System.Diagnostics.Eventing.Reader.EventLogQuery("Security",
-                    [System.Diagnostics.Eventing.Reader.PathType]::LogName, $query)
-    $watcher    = New-Object System.Diagnostics.Eventing.Reader.EventLogWatcher($evtQuery)
-
-    $watcher.add_EventRecordWritten({
-        param($sender, $args)
-        if ($args.EventRecord) {
-            Invoke-IntegrityAlert -Event $args.EventRecord
-        }
-    })
-
-    $watcher.Enabled = $true
-
-    # Keep the script alive
-    while ($true) { Start-Sleep -Seconds 5 }
-
-} catch {
-    Write-Error "Watcher failed: $_"
-} finally {
-    if ($watcher) { $watcher.Dispose() }
+    Start-Sleep -Seconds $IntervalSeconds
 }
