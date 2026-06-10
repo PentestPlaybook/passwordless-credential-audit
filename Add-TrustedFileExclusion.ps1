@@ -72,6 +72,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Resolve to full path using PowerShell's working directory
+$FilePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($FilePath)
+
 $urlMode = $URL -ne ""
 
 # ── If FilePath is a directory and URL provided, derive filename from URL ─────
@@ -79,6 +83,12 @@ if ($urlMode -and (Test-Path $FilePath -PathType Container)) {
     $urlFileName = Split-Path -Path ([System.Uri]$URL).LocalPath -Leaf
     $FilePath    = Join-Path (Resolve-Path $FilePath) $urlFileName
     Write-Host "[+] Directory provided - saving as: $FilePath" -ForegroundColor Cyan
+}
+
+# If FilePath is still a directory at this point, URL is required
+if (Test-Path $FilePath -PathType Container) {
+    Write-Error "FilePath is a directory. Provide a full file path, or add -URL to derive the filename."
+    exit 1
 }
 
 $fileName = Split-Path $FilePath -Leaf
