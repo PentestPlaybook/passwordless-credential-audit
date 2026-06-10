@@ -14,13 +14,18 @@ notification pipeline via the WiFi Pineapple Pager.
 
 ```
 Add-TrustedFileExclusion.ps1
-    File-specific Defender exclusion added before download
-    SHA256 computed, file deleted, exclusion removed
-    VirusTotal link displayed - user verifies by hash search
-    Y/N prompt - N exits cleanly, nothing left on disk
-    Y: re-adds exclusion, re-downloads, verifies hash matches approved value
-        Read-only flag set (TOCTOU mitigation)
-        Hash registered in trusted_hashes.json
+    If file already has a Defender exclusion:
+        SHA256 displayed - prompt to keep or remove exclusion
+        Y: exclusion kept, registry updated
+        N: exclusion removed
+    Otherwise:
+        File-specific Defender exclusion added before download
+        SHA256 computed, file deleted, exclusion removed
+        VirusTotal link displayed - user verifies by hash search
+        Y/N prompt - N exits cleanly, nothing left on disk
+        Y: re-adds exclusion, re-downloads, verifies hash matches approved value
+            Read-only flag set (TOCTOU mitigation)
+            Hash registered in trusted_hashes.json
 
 Watch-FileIntegrity.ps1 (persistent, runs at startup)
     Polls trusted_hashes.json every 60 seconds
@@ -62,6 +67,14 @@ then applies a file-specific Defender exclusion and integrity monitoring.
 | `-PagerPort` | No | Pager netcat listener port (default: 9999) |
 
 **What it does:**
+
+If the file already has a Defender exclusion (previously trusted):
+1. Computes SHA256 and displays it
+2. Prompts: "File already has a Defender exclusion. Y to continue trusting, N to remove"
+   - **Y**: exclusion kept, registry and read-only updated
+   - **N**: exclusion removed
+
+Otherwise (new file or URL download):
 1. If `-URL` provided: adds exclusion, downloads file
 2. Computes SHA256 hash
 3. Deletes file and removes exclusion pending confirmation
