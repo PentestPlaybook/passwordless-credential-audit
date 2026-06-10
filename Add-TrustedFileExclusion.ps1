@@ -95,9 +95,9 @@ $fileName = Split-Path $FilePath -Leaf
 Write-Host ""
 
 # ── Convert GitHub blob URL to raw URL ───────────────────────────────────────
-if ($urlMode -and ($URL -match '^https://github\.com/(.+)/blob/(.+)$')) {
+if ($urlMode -and ($URL -match '^https://github\.com/(.+)/(?:blob|tree)/(.+)$')) {
     $URL = "https://raw.githubusercontent.com/" + $Matches[1] + "/" + $Matches[2]
-    Write-Host "[+] GitHub blob URL detected. Using raw URL:" -ForegroundColor Cyan
+    Write-Host "[+] GitHub URL detected. Using raw URL:" -ForegroundColor Cyan
     Write-Host "    $URL" -ForegroundColor Cyan
     Write-Host ""
 }
