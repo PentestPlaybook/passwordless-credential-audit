@@ -25,7 +25,7 @@ $fsType = (Get-Volume -DriveLetter $driveLetter -ErrorAction SilentlyContinue).F
 if ($fsType -eq "NTFS") {
     Write-Host "[PASS] Drive $driveLetter is NTFS." -ForegroundColor Green
 } else {
-    Write-Host "[FAIL] Drive $driveLetter is $fsType - SACLs require NTFS." -ForegroundColor Red
+    Write-Host "[FAIL] Drive $driveLetter is $fsType - NTFS required." -ForegroundColor Red
 }
 
 # 3. Read-only flag
@@ -43,8 +43,6 @@ if ($excls -contains $FilePath) {
 } else {
     Write-Host "[FAIL] No Defender exclusion found for this path." -ForegroundColor Red
 }
-
-
 
 # 5. Hash registry
 if (Test-Path $RegistryPath) {
