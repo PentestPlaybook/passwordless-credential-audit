@@ -240,7 +240,7 @@ acquisition stage, identical to the procdump block.
 
 ---
 
-
+## End-to-End Test
 
 ```powershell
 # 1. Confirm baseline state
