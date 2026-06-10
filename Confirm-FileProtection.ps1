@@ -5,6 +5,7 @@ param(
     [string]$RegistryPath = "$env:ProgramData\SecurityBaseline\trusted_hashes.json"
 )
 
+$FilePath = [System.IO.Path]::GetFullPath($FilePath)
 $fileName = Split-Path $FilePath -Leaf
 
 Write-Host ""
