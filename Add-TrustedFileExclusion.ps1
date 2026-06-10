@@ -129,9 +129,67 @@ if ($urlMode) {
     Write-Error "File not found: $FilePath. Provide -URL to download it."
     exit 1
 } else {
-    # FilePath mode - add exclusion before reading
-    Add-MpPreference -ExclusionPath $FilePath
-    Start-Sleep -Seconds 3
+    # FilePath mode - check if exclusion already exists
+    $existingExclusions = (Get-MpPreference).ExclusionPath
+    $exclusionExists    = $null -ne $existingExclusions -and $existingExclusions -contains $FilePath
+
+    if ($exclusionExists) {
+        # File already trusted - read hash without touching exclusion
+        Write-Host "File: $FilePath"
+        Write-Host ""
+        $approvedHash = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash
+        Write-Host "SHA256: $approvedHash" -ForegroundColor Cyan
+        Write-Host ""
+        $confirm = Read-Host "File already has a Defender exclusion. Y to continue trusting, N to remove the exclusion"
+        if ($confirm -notmatch '^[Yy]$') {
+            Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
+            Write-Host "[-] Exclusion removed." -ForegroundColor Yellow
+            exit 0
+        }
+        # Refresh registry and protection without re-verifying on VirusTotal
+        Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $true -ErrorAction SilentlyContinue
+        $fileName = Split-Path $FilePath -Leaf
+        try {
+            $dir = Split-Path $RegistryPath
+            if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            $reg = if (Test-Path $RegistryPath) {
+                Get-Content $RegistryPath -Raw | ConvertFrom-Json
+            } else { [PSCustomObject]@{} }
+            $reg | Add-Member -NotePropertyName $FilePath -NotePropertyValue ([PSCustomObject]@{
+                expectedHash = $approvedHash
+                fileName     = $fileName
+                registeredAt = (Get-Date -Format "o")
+            }) -Force
+            $reg | ConvertTo-Json -Depth 5 | Set-Content $RegistryPath -Force
+            Write-Host "[+] Hash registry updated." -ForegroundColor Cyan
+        } catch {
+            Write-Warning "Hash registry write failed: $_"
+        }
+        if ($PagerIP -ne "") {
+            try {
+                $msg    = "EXCLUSION_ADDED: " + $fileName + " Hash verified"
+                $client = New-Object System.Net.Sockets.TcpClient
+                $client.ConnectAsync($PagerIP, $PagerPort).Wait(3000) | Out-Null
+                if ($client.Connected) {
+                    $stream = $client.GetStream()
+                    $bytes  = [System.Text.Encoding]::UTF8.GetBytes($msg + "`n")
+                    $stream.Write($bytes, 0, $bytes.Length)
+                    $stream.Flush()
+                    $client.Close()
+                    Write-Host "[+] Pager notified." -ForegroundColor Cyan
+                }
+            } catch {
+                Write-Warning "Pager notification failed: $_"
+            }
+        }
+        Write-Host ""
+        Write-Host "Done. $fileName is trusted at: $FilePath" -ForegroundColor Green
+        exit 0
+    } else {
+        # No existing exclusion - add before reading
+        Add-MpPreference -ExclusionPath $FilePath
+        Start-Sleep -Seconds 3
+    }
 }
 
 Write-Host "File: $FilePath"
