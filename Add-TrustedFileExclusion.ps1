@@ -136,6 +136,7 @@ if ($urlMode) {
 
         # Extract and locate the target file by name
         $extractDir = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
+        Add-MpPreference -ExclusionPath $extractDir -ErrorAction SilentlyContinue
         Write-Host "[+] Extracting..." -ForegroundColor Cyan
         try {
             Expand-Archive -Path $zipTemp -DestinationPath $extractDir -Force -ErrorAction Stop
@@ -148,8 +149,10 @@ if ($urlMode) {
             exit 1
         }
 
-        $found = Get-ChildItem -Path $extractDir -Recurse -Filter $fileName -File |
+        $allFound = Get-ChildItem -Path $extractDir -Recurse -Filter $fileName -File
+        $found = $allFound | Where-Object { $_.FullName -match '\\x64\\' } |
                  Select-Object -First 1
+        if (-not $found) { $found = $allFound | Select-Object -First 1 }
 
         if (-not $found) {
             Remove-Item $zipTemp    -Force -ErrorAction SilentlyContinue
@@ -172,8 +175,9 @@ if ($urlMode) {
         # Clean up temp files and temp exclusions
         Remove-Item $zipTemp    -Force -ErrorAction SilentlyContinue
         Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-MpPreference -ExclusionPath $zipTemp -ErrorAction SilentlyContinue
-        Remove-MpPreference -ExclusionPath $destDir -ErrorAction SilentlyContinue
+        Remove-MpPreference -ExclusionPath $zipTemp    -ErrorAction SilentlyContinue
+        Remove-MpPreference -ExclusionPath $extractDir -ErrorAction SilentlyContinue
+        Remove-MpPreference -ExclusionPath $destDir    -ErrorAction SilentlyContinue
 
     } else {
         # Direct file download
@@ -370,8 +374,10 @@ if ($urlMode) {
         }
         $extractDir2 = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
         Expand-Archive -Path $zipTemp2 -DestinationPath $extractDir2 -Force
-        $found2 = Get-ChildItem -Path $extractDir2 -Recurse -Filter $fileName -File |
+        $allFound2 = Get-ChildItem -Path $extractDir2 -Recurse -Filter $fileName -File
+        $found2 = $allFound2 | Where-Object { $_.FullName -match '\\x64\\' } |
                   Select-Object -First 1
+        if (-not $found2) { $found2 = $allFound2 | Select-Object -First 1 }
         if (-not $found2) {
             Remove-Item $zipTemp2    -Force -ErrorAction SilentlyContinue
             Remove-Item $extractDir2 -Recurse -Force -ErrorAction SilentlyContinue
