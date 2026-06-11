@@ -112,7 +112,7 @@ if ($urlMode) {
     if ($isZip) {
         # ZIP: FilePath must include the target filename so the script knows what to extract
         if (Test-Path $FilePath -PathType Container) {
-            Write-Error "ZIP download requires a full file path including the target filename — the script searches inside the ZIP for that filename.`nExample: -FilePath 'C:\Users\lobyo\mimikatz.exe' -URL '$URL'"
+            Write-Error "ZIP download requires a full file path including the target filename - the script searches inside the ZIP for that filename.`nExample: -FilePath 'C:\Users\lobyo\mimikatz.exe' -URL '$URL'"
             exit 1
         }
         $zipTemp = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName() + ".zip")
