@@ -45,7 +45,27 @@ if ($excls -contains $FilePath) {
     Write-Host "[FAIL] No Defender exclusion found for this path." -ForegroundColor Red
 }
 
-# 5. Hash registry
+# 5. DACL - Users group should have Read only, not Write or Execute
+try {
+    $acl   = Get-Acl -Path $FilePath
+    $rules = $acl.Access | Where-Object { $_.IdentityReference -match "Users" }
+    if ($rules) {
+        $hasWrite = $rules | Where-Object {
+            $_.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Write
+        }
+        if ($hasWrite) {
+            Write-Host "[FAIL] Users group has Write permission - overwrite attack possible." -ForegroundColor Red
+        } else {
+            Write-Host "[PASS] Users group restricted to Read - no overwrite path." -ForegroundColor Green
+        }
+    } else {
+        Write-Host "[WARN] No explicit Users ACE found - verify DACL manually." -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "[WARN] Could not read DACL: $_" -ForegroundColor Yellow
+}
+
+# 6. Hash registry
 if (Test-Path $RegistryPath) {
     $reg = Get-Content $RegistryPath -Raw | ConvertFrom-Json
     $entry = $reg.PSObject.Properties | Where-Object { $_.Name -eq $FilePath }
@@ -60,7 +80,7 @@ if (Test-Path $RegistryPath) {
     Write-Host "[WARN] Hash registry file not found at $RegistryPath" -ForegroundColor Yellow
 }
 
-# 6. Current hash vs registry
+# 7. Current hash vs registry
 $currentHash = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash
 Write-Host ""
 Write-Host "Current SHA256: $currentHash" -ForegroundColor Cyan
