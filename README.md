@@ -184,8 +184,9 @@ Run after `Add-TrustedFileExclusion.ps1` to confirm everything is in place.
 2. Drive is NTFS
 3. Read-only flag is set
 4. Defender exclusion is present for this exact path
-5. Hash registry entry exists
-6. Current hash matches registry value
+5. DACL restricts Users group to Read — no Write path for standard users
+6. Hash registry entry exists
+7. Current hash matches registry value
 
 ---
 
@@ -286,6 +287,9 @@ The file does not exist on disk while waiting for user confirmation. If the user
 answers N, nothing is left behind. If Y, the file is re-downloaded and verified
 against the hash that was reviewed on VirusTotal, closing the gap between review
 and final trust.
+
+**NTFS DACL write restriction**
+After trust, the DACL is modified to grant Administrators full control and restrict the Users group to Read only. This removes the write path for standard users, breaking the first element of a binary overwrite privilege escalation chain. A writable privileged binary requires both a writable file and a privileged execution context — removing write access for non-admins eliminates the attack regardless of whether the attacker later escalates privileges.
 
 **TOCTOU mitigation**
 Files are set read-only immediately after the final verified download. Replacing
