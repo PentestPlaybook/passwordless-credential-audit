@@ -61,7 +61,7 @@ then applies a file-specific Defender exclusion and integrity monitoring.
 | Parameter | Required | Description |
 |---|---|---|
 | `-FilePath` | Yes | Full path to the file. Used as download destination if -URL provided. Accepts a directory - filename derived from URL. |
-| `-URL` | No | Download URL. GitHub blob URLs converted to raw URLs automatically. |
+| `-URL` | No | Download URL. GitHub blob/tree URLs converted to raw automatically. ZIP archives supported — script extracts the target filename from inside the archive. |
 | `-ExpectedHash` | No | Optional safety check. Verifies hash matches a previously known value before prompting. |
 | `-PagerIP` | No | Tailscale IP of the Pager - omit to skip notification |
 | `-PagerPort` | No | Pager netcat listener port (default: 9999) |
@@ -75,7 +75,9 @@ If the file already has a Defender exclusion (previously trusted):
    - **N**: exclusion removed
 
 Otherwise (new file or URL download):
-1. If `-URL` provided: adds exclusion, downloads file
+1. If `-URL` provided: adds exclusions, downloads file
+   - **ZIP URL**: exclusions added for temp path, destination directory, and target file before download. ZIP extracted to temp, target filename located inside archive, copied to `-FilePath`, temp files cleaned up
+   - **Direct URL**: exclusion added for target path before download
 2. Computes SHA256 hash
 3. Deletes file and removes exclusion pending confirmation
 4. Displays hash with direct VirusTotal search link
@@ -90,6 +92,9 @@ Otherwise (new file or URL download):
 
 # Download from URL to specific path (GitHub blob or raw URLs accepted)
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
+
+# Download from ZIP - script finds the target filename inside the archive
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe" -URL "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip"
 
 # Download to directory - filename derived from URL
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
