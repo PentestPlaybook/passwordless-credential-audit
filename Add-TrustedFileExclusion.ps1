@@ -104,25 +104,95 @@ if ($urlMode -and ($URL -match '^https://github\.com/(.+)/(?:blob|tree)/(.+)$'))
 
 # ── Download (URL mode) ───────────────────────────────────────────────────────
 if ($urlMode) {
-    # Add exclusion BEFORE download so Defender does not quarantine on write
-    Add-MpPreference -ExclusionPath $FilePath
-    Start-Sleep -Seconds 3
-    Write-Host "[+] Exclusion added for: $FilePath" -ForegroundColor Cyan
 
-    if (Test-Path $FilePath) {
-        Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
-        Write-Host "[+] Overwriting existing file..." -ForegroundColor Cyan
+    $isZip    = $URL -match '\.(zip|7z)(\?.*)?$'
+    $zipTemp  = $null
+    $destDir  = Split-Path $FilePath -Parent
+
+    if ($isZip) {
+        # ZIP: add exclusions for the zip temp path AND destination directory
+        # before downloading — Defender scans archive contents on write
+        $zipTemp = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName() + ".zip")
+        Add-MpPreference -ExclusionPath $zipTemp  -ErrorAction SilentlyContinue
+        Add-MpPreference -ExclusionPath $destDir  -ErrorAction SilentlyContinue
+        Add-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
+        Write-Host "[+] Exclusions added for ZIP download and extraction." -ForegroundColor Cyan
+
+        Write-Host "[+] Downloading ZIP to temp..." -ForegroundColor Cyan
+        try {
+            Invoke-WebRequest -Uri $URL -OutFile $zipTemp -UseBasicParsing -ErrorAction Stop
+            Write-Host "[+] Download complete." -ForegroundColor Cyan
+        } catch {
+            Remove-MpPreference -ExclusionPath $zipTemp  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $destDir  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
+            Write-Error "Download failed: $_"
+            exit 1
+        }
+
+        # Extract and locate the target file by name
+        $extractDir = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
+        Write-Host "[+] Extracting..." -ForegroundColor Cyan
+        try {
+            Expand-Archive -Path $zipTemp -DestinationPath $extractDir -Force -ErrorAction Stop
+        } catch {
+            Remove-Item $zipTemp -Force -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $zipTemp  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $destDir  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
+            Write-Error "Extraction failed: $_"
+            exit 1
+        }
+
+        $found = Get-ChildItem -Path $extractDir -Recurse -Filter $fileName -File |
+                 Select-Object -First 1
+
+        if (-not $found) {
+            Remove-Item $zipTemp    -Force -ErrorAction SilentlyContinue
+            Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $zipTemp  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $destDir  -ErrorAction SilentlyContinue
+            Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
+            Write-Error "$fileName not found inside the ZIP."
+            exit 1
+        }
+
+        Write-Host "[+] Found: $($found.FullName)" -ForegroundColor Cyan
+
+        if (Test-Path $FilePath) {
+            Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
+        }
+        Copy-Item -Path $found.FullName -Destination $FilePath -Force
+        Write-Host "[+] Copied to $FilePath" -ForegroundColor Cyan
+
+        # Clean up temp files and temp exclusions
+        Remove-Item $zipTemp    -Force -ErrorAction SilentlyContinue
+        Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-MpPreference -ExclusionPath $zipTemp -ErrorAction SilentlyContinue
+        Remove-MpPreference -ExclusionPath $destDir -ErrorAction SilentlyContinue
+
     } else {
-        Write-Host "[+] Downloading to $FilePath..." -ForegroundColor Cyan
-    }
+        # Direct file download
+        Add-MpPreference -ExclusionPath $FilePath
+        Start-Sleep -Seconds 3
+        Write-Host "[+] Exclusion added for: $FilePath" -ForegroundColor Cyan
 
-    try {
-        Invoke-WebRequest -Uri $URL -OutFile $FilePath -UseBasicParsing -ErrorAction Stop
-        Write-Host "[+] Download complete." -ForegroundColor Cyan
-    } catch {
-        Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
-        Write-Error "Download failed: $_"
-        exit 1
+        if (Test-Path $FilePath) {
+            Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
+            Write-Host "[+] Overwriting existing file..." -ForegroundColor Cyan
+        } else {
+            Write-Host "[+] Downloading to $FilePath..." -ForegroundColor Cyan
+        }
+
+        try {
+            Invoke-WebRequest -Uri $URL -OutFile $FilePath -UseBasicParsing -ErrorAction Stop
+            Write-Host "[+] Download complete." -ForegroundColor Cyan
+        } catch {
+            Remove-MpPreference -ExclusionPath $FilePath -ErrorAction SilentlyContinue
+            Write-Error "Download failed: $_"
+            exit 1
+        }
     }
 
 } elseif (-not (Test-Path $FilePath)) {
