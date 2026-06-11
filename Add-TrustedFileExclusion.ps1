@@ -148,6 +148,17 @@ if ($urlMode) {
         }
         # Refresh registry and protection without re-verifying on VirusTotal
         Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $true -ErrorAction SilentlyContinue
+        try {
+            $acl = Get-Acl -Path $FilePath
+            $acl.SetAccessRuleProtection($true, $false)
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM","FullControl","Allow")))
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators","FullControl","Allow")))
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("Users","Read","Allow")))
+            Set-Acl -Path $FilePath -AclObject $acl
+            Write-Host "[+] DACL set: Administrators full control, Users read-only." -ForegroundColor Cyan
+        } catch {
+            Write-Warning "DACL modification failed: $_"
+        }
         $fileName = Split-Path $FilePath -Leaf
         try {
             $dir = Split-Path $RegistryPath
@@ -298,6 +309,26 @@ if ($urlMode) {
 # ── Set read-only (TOCTOU mitigation) ─────────────────────────────────────────
 Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $true
 Write-Host "[+] File set to read-only." -ForegroundColor Cyan
+
+# ── Restrict DACL: Administrators full control, Users read-only ───────────────
+# Prevents standard users from overwriting the trusted binary.
+# A writable privileged binary is the first element of a privilege escalation
+# chain - removing write access for non-admins breaks that chain regardless of
+# whether the attacker can privilege escalate later.
+try {
+    $acl = Get-Acl -Path $FilePath
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "SYSTEM", "FullControl", "Allow")))
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "Administrators", "FullControl", "Allow")))
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "Users", "Read", "Allow")))
+    Set-Acl -Path $FilePath -AclObject $acl
+    Write-Host "[+] DACL set: Administrators full control, Users read-only." -ForegroundColor Cyan
+} catch {
+    Write-Warning "DACL modification failed: $_"
+}
 
 # ── Write to hash registry ─────────────────────────────────────────────────────
 try {
