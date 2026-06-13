@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Downloads or locates a file, computes its hash, then deletes it and
-    waits for VirusTotal confirmation before re-downloading and trusting.
+    waits for source verification before re-downloading and trusting.
 
 .DESCRIPTION
     Workflow:
@@ -11,8 +11,8 @@
       2. Compute SHA256 hash.
       3. If -ExpectedHash is provided, verify the hash matches before proceeding.
       4. Delete the file and remove the exclusion.
-      5. Display the hash with a direct VirusTotal search link.
-      6. Prompt: "Have you verified this hash on VirusTotal? (Y/N)"
+      5. Display the hash with a link to cross-reference against known values.
+      6. Prompt: "Does this hash match the official release? (Y/N)"
          - N: exits cleanly. No file on disk, no exclusion, nothing trusted.
          - Y: re-adds exclusion, re-downloads the file, verifies the hash
               matches what was approved, then applies full protection.
@@ -225,7 +225,7 @@ if ($urlMode) {
             Write-Host "[-] Exclusion removed." -ForegroundColor Yellow
             exit 0
         }
-        # Refresh registry and protection without re-verifying on VirusTotal
+        # Refresh registry and protection without re-verifying source authenticity
         Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $true -ErrorAction SilentlyContinue
         try {
             $acl = Get-Acl -Path $FilePath
@@ -314,7 +314,7 @@ if ($ExpectedHash -ne "") {
 # ── Delete file and remove exclusion before prompting (URL mode) ──────────────
 # The file should not exist on disk while waiting for user confirmation.
 # If the user says N, nothing is left behind. If Y, the file is re-downloaded
-# and verified against the hash the user reviewed on VirusTotal.
+# and verified against the hash the user confirmed matches the official release.
 if ($urlMode) {
     Set-ItemProperty -Path $FilePath -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
     Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
@@ -326,18 +326,22 @@ if ($urlMode) {
     Write-Host "[+] Exclusion removed pending confirmation." -ForegroundColor Cyan
 }
 
-# ── Display hash and VirusTotal link ──────────────────────────────────────────
+# ── Display hash and source verification guidance ─────────────────────────────
 Write-Host ""
 Write-Host "SHA256: $approvedHash" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Search this hash on VirusTotal:" -ForegroundColor Yellow
+Write-Host "Verify this hash against the official release source:" -ForegroundColor Yellow
 Write-Host "  https://www.virustotal.com/gui/search/$approvedHash" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "Do not use URL analysis - search by hash for the exact file you have." -ForegroundColor Yellow
+Write-Host "Security research tools will show detections on VirusTotal - this is expected." -ForegroundColor Yellow
+Write-Host "What matters is hash consistency: does this hash match the known value" -ForegroundColor Yellow
+Write-Host "for this binary from its official repository or release page?" -ForegroundColor Yellow
+Write-Host "If the hash matches what the official source published or what trusted" -ForegroundColor Yellow
+Write-Host "researchers have documented for this version, the binary is authentic." -ForegroundColor Yellow
 Write-Host ""
 
 # ── Prompt for confirmation ───────────────────────────────────────────────────
-$confirm = Read-Host "Have you verified this hash on VirusTotal? (Y/N)"
+$confirm = Read-Host "Does this hash match the official release? (Y/N)"
 
 if ($confirm -notmatch '^[Yy]$') {
     Write-Host ""
