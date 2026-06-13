@@ -21,7 +21,7 @@ Add-TrustedFileExclusion.ps1
     Otherwise:
         File-specific Defender exclusion added before download
         SHA256 computed, file deleted, exclusion removed
-        VirusTotal link displayed - user verifies by hash search
+        Hash displayed with source cross-reference link - user verifies against official release
         Y/N prompt - N exits cleanly, nothing left on disk
         Y: re-adds exclusion, re-downloads, verifies hash matches approved value
             Read-only flag set (TOCTOU mitigation)
@@ -54,7 +54,7 @@ Confirm-FileProtection.ps1
 
 ### `Add-TrustedFileExclusion.ps1`
 
-Downloads or locates a file, verifies its hash via VirusTotal confirmation,
+Downloads or locates a file, computes its hash for source verification,
 then applies a file-specific Defender exclusion and integrity monitoring.
 
 **Parameters:**
@@ -80,8 +80,8 @@ Otherwise (new file or URL download):
    - **Direct URL**: exclusion added for target path before download
 2. Computes SHA256 hash
 3. Deletes file and removes exclusion pending confirmation
-4. Displays hash with direct VirusTotal search link
-5. Prompts: "Have you verified this hash on VirusTotal? (Y/N)"
+4. Displays hash with link to cross-reference against known values
+5. Prompts: "Does this hash match the official release? (Y/N)"
    - **N**: exits cleanly - no file on disk, no exclusion
    - **Y**: re-adds exclusion, re-downloads, verifies hash matches approved value, sets read-only, writes to hash registry, optionally notifies Pager
 
@@ -106,11 +106,13 @@ Otherwise (new file or URL download):
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://..." -ExpectedHash "AD9E4D..."
 ```
 
-**VirusTotal workflow:**
+**Source verification:**
 
-Always search by hash, not URL. URL analysis caches results and may reflect a
-file from months or years ago. The script computes the hash and outputs a direct
-search link — open it, review the detections, then answer Y or N at the prompt.
+Search by hash, not URL — URL analysis caches results and may reflect a file
+from months or years ago. Security research tools will show detections; this is
+expected and not disqualifying. What matters is hash consistency: does this hash
+match the known value from the official repository or release page? If it does,
+the binary is authentic. Answer Y only after confirming against the official source.
 
 Raw GitHub URL format (blob URL to raw URL):
 ```
@@ -224,7 +226,8 @@ These illustrate the distinction between signature detection and behavioral dete
 
 ### `lsass_nanodump.bat`
 
-Runs nanodump against LSASS. **Works** when `Add-TrustedFileExclusion.ps1` has been
+Runs nanodump against LSASS. Accepts an optional output path argument — defaults
+to the script directory if omitted. Accepts a directory path or full file path. **Works** when `Add-TrustedFileExclusion.ps1` has been
 run against the nanodump binary. nanodump carries a known malicious signature — Defender
 quarantines it on sight without the exclusion. With the file-specific exclusion in place,
 signature detection is bypassed and nanodump executes cleanly because its technique does
@@ -233,7 +236,8 @@ nanodump and a successful LSASS dump.
 
 ### `lsass_procdump.bat`
 
-Runs procdump against LSASS. **Does not work** regardless of any file exclusion.
+Runs procdump against LSASS. Accepts an optional output path argument — defaults
+to the script directory if omitted. Accepts a directory path or full file path. **Does not work** regardless of any file exclusion.
 Procdump is a legitimate Sysinternals tool — it has no malicious signature and
 Defender will never quarantine it. The block comes from behavioral detection, which
 fires the moment procdump opens a handle to the LSASS PID. A file-specific exclusion
@@ -243,7 +247,8 @@ by an exclusion.
 
 ### `lsass_comsvcs.bat`
 
-Uses `rundll32.exe` to call `MiniDump` via `comsvcs.dll` — a Windows system file.
+Accepts an optional output path argument — defaults to the script directory if
+omitted. Accepts a directory path or full file path. Uses `rundll32.exe` to call `MiniDump` via `comsvcs.dll` — a Windows system file.
 **Does not work** for the same reason as procdump. There is no standalone executable
 to quarantine, so signature detection never fires. The block is behavioral: Defender
 detects the MiniDump call targeting the LSASS PID and denies it at the handle
@@ -290,8 +295,8 @@ execution zone for other tools.
 **Delete before trust**
 The file does not exist on disk while waiting for user confirmation. If the user
 answers N, nothing is left behind. If Y, the file is re-downloaded and verified
-against the hash that was reviewed on VirusTotal, closing the gap between review
-and final trust.
+against the hash that was confirmed to match the official release, closing the gap
+between verification and final trust.
 
 **NTFS DACL write restriction**
 After trust, the DACL is modified to grant Administrators full control and restrict the Users group to Read only. This removes the write path for standard users, breaking the first element of a binary overwrite privilege escalation chain. A writable privileged binary requires both a writable file and a privileged execution context — removing write access for non-admins eliminates the attack regardless of whether the attacker later escalates privileges.
