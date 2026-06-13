@@ -226,33 +226,49 @@ These illustrate the distinction between signature detection and behavioral dete
 
 ### `lsass_nanodump.bat`
 
-Runs nanodump against LSASS. Accepts an optional output path argument — defaults
-to the script directory if omitted. Accepts a directory path or full file path. **Works** when `Add-TrustedFileExclusion.ps1` has been
-run against the nanodump binary. nanodump carries a known malicious signature — Defender
-quarantines it on sight without the exclusion. With the file-specific exclusion in place,
-signature detection is bypassed and nanodump executes cleanly because its technique does
-not trigger behavioral detection. The exclusion is the only thing standing between
-nanodump and a successful LSASS dump.
+**Works** when `Add-TrustedFileExclusion.ps1` has been run against the nanodump binary.
+nanodump carries a known malicious signature — Defender quarantines it on sight without
+the exclusion. With the file-specific exclusion in place, signature detection is bypassed
+and nanodump executes cleanly because its technique does not trigger behavioral detection.
+The exclusion is the only thing standing between nanodump and a successful LSASS dump.
+
+```cmd
+# Default output - saves to script directory
+.\lsass_nanodump.bat
+
+# Custom output path
+.\lsass_nanodump.bat "F:\dumps\"
+.\lsass_nanodump.bat "F:\dumps\lsass.dmp"
+```
 
 ### `lsass_procdump.bat`
 
-Runs procdump against LSASS. Accepts an optional output path argument — defaults
-to the script directory if omitted. Accepts a directory path or full file path. **Does not work** regardless of any file exclusion.
-Procdump is a legitimate Sysinternals tool — it has no malicious signature and
-Defender will never quarantine it. The block comes from behavioral detection, which
-fires the moment procdump opens a handle to the LSASS PID. A file-specific exclusion
-has no effect on behavioral detection — the two systems are independent. The exclusion
-prevents quarantine; behavioral detection operates at runtime and cannot be bypassed
-by an exclusion.
+**Does not work** regardless of any file exclusion. Procdump is a legitimate Sysinternals
+tool — it has no malicious signature and Defender will never quarantine it. The block comes
+from behavioral detection, which fires the moment procdump opens a handle to the LSASS PID.
+A file-specific exclusion has no effect on behavioral detection — the two systems are
+independent. The exclusion prevents quarantine; behavioral detection operates at runtime
+and cannot be bypassed by an exclusion.
+
+```cmd
+.\lsass_procdump.bat
+.\lsass_procdump.bat "F:\dumps\"
+.\lsass_procdump.bat "F:\dumps\lsass.dmp"
+```
 
 ### `lsass_comsvcs.bat`
 
-Accepts an optional output path argument — defaults to the script directory if
-omitted. Accepts a directory path or full file path. Uses `rundll32.exe` to call `MiniDump` via `comsvcs.dll` — a Windows system file.
-**Does not work** for the same reason as procdump. There is no standalone executable
-to quarantine, so signature detection never fires. The block is behavioral: Defender
-detects the MiniDump call targeting the LSASS PID and denies it at the handle
-acquisition stage, identical to the procdump block.
+**Does not work** for the same reason as procdump. Uses `rundll32.exe` to call `MiniDump`
+via `comsvcs.dll` — a Windows system file. There is no standalone executable to quarantine,
+so signature detection never fires. The block is behavioral: Defender detects the MiniDump
+call targeting the LSASS PID and denies it at the handle acquisition stage, identical to
+the procdump block.
+
+```cmd
+.\lsass_comsvcs.bat
+.\lsass_comsvcs.bat "F:\dumps\"
+.\lsass_comsvcs.bat "F:\dumps\lsass.dmp"
+```
 
 ### Summary
 
