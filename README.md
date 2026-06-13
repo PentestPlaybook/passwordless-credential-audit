@@ -1,5 +1,11 @@
 # Security Research Tool Protection Suite
 
+```powershell
+Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/Add-TrustedFileExclusion.ps1" -OutFile "Add-TrustedFileExclusion.ps1" -UseBasicParsing
+```
+
+---
+
 PowerShell scripts for managing Windows Defender exclusions, file integrity
 monitoring, and out-of-band alerting for known-signature security research tools.
 
@@ -87,14 +93,14 @@ Otherwise (new file or URL download):
 
 **Usage:**
 ```powershell
-# File already on disk
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe"
-
 # Download from URL to specific path (GitHub blob or raw URLs accepted)
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
 
 # Download from ZIP - script finds the target filename inside the archive
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe" -URL "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip"
+
+# File already on disk
+.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe"
 
 # Download to directory - filename derived from URL
 .\Add-TrustedFileExclusion.ps1 -FilePath "F:\" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
