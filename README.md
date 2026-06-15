@@ -15,6 +15,10 @@ The tools in this repository dump and analyze the local credential state to veri
 ## Mimikatz Dump
 
 ```powershell
+cd <your_drive>:\
+```
+
+```powershell
 Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/passwordless-credential-audit/main/Add-TrustedFileExclusion.ps1" -OutFile "Add-TrustedFileExclusion.ps1" -UseBasicParsing
 ```
 
@@ -115,7 +119,11 @@ Polls registered file paths every 60 seconds and fires Pager and ntfy alerts whe
 Seven-point spot-check of all protection components on a registered file.
 
 ```powershell
-.\Confirm-FileProtection.ps1 -FilePath "F:\nanodump.x64.exe"
+cd <your_drive>:\
+```
+
+```powershell
+.\Confirm-FileProtection.ps1 -FilePath ".\nanodump.x64.exe"
 ```
 
 ---
