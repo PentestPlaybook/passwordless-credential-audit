@@ -113,6 +113,7 @@ Invoke-WebRequest "https://raw.githubusercontent.com/PentestPlaybook/pentest-che
 
 ```bash
 ssh-keygen -f '~/.ssh/known_hosts' -R '<WINDOWS_IP>'
+chmod +x kali-dump.sh
 ./kali-dump.sh
 ```
 ```
